@@ -12,9 +12,12 @@ interface ConfigPanelProps {
   isGenerating: boolean;
 }
 
+// Only Total Body has accurate block data from real classes
+// Other class types will be added when we have their workbook data
 const classTypeOptions = Object.values(CLASS_TYPE_CONFIGS).map(ct => ({
   value: ct.id,
-  label: ct.name
+  label: ct.id === 'total_body' ? ct.name : `${ct.name} (Coming Soon)`,
+  disabled: ct.id !== 'total_body'
 }));
 
 const equipmentOptions = EQUIPMENT_OPTIONS.map(eq => ({
@@ -31,6 +34,11 @@ export function ConfigPanel({
   return (
     <div className="bg-white rounded-lg shadow p-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">Class Configuration</h2>
+
+      <p className="text-sm text-gray-500 mb-4">
+        Currently configured with real block data from Total Body classes (Fri/Sun).
+        Other class types will be added when we have their workout data.
+      </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Class Type */}

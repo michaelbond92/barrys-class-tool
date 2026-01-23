@@ -1,5 +1,5 @@
-// Block-based class generator that creates naturally flowing workouts
-// Based on analysis of real Barry's Total Body classes
+// Block-based class generator using real Barry's class patterns
+// Each block is self-contained with hero moment at the end
 
 import {
   ClassPlan,
@@ -7,22 +7,24 @@ import {
   TreadEntry,
   FloorEntry,
   GeneratorConfig,
-  EnergyLevel,
-  SpeedSet
+  EnergyLevel
 } from '../types';
-import { generateId, getToday } from '../utils/dateUtils';
+import { generateId } from '../utils/dateUtils';
 import { formatMinuteRange } from '../utils/formatUtils';
 import { createTreadEntry, calculateTreadAverage } from './treadParser';
 import {
   ExerciseBlock,
-  BlockType,
   getRandomBlock,
-  getBlocksByType,
-  WARMUP_BODYWEIGHT_BLOCKS,
-  WARMUP_WEIGHTED_BLOCKS,
-  TOTAL_BODY_BLOCK_SEQUENCES,
-  ROUND_2_BLOCK_SEQUENCES,
-  POWER_FINISHER_BLOCKS
+  ROUND1_WARMUPS,
+  ROUND2_STARTERS,
+  CHEST_BLOCKS,
+  BACK_BLOCKS,
+  DEADLIFT_BLOCKS,
+  SQUAT_BLOCKS,
+  LUNGE_BLOCKS,
+  ARMS_BLOCKS,
+  CORE_BLOCKS,
+  POWER_BLOCKS
 } from '../data/exerciseBlocks';
 
 interface GeneratedMinute {
@@ -30,144 +32,140 @@ interface GeneratedMinute {
   tread: TreadEntry;
 }
 
-// Get tread entry based on pattern type
-function getTreadForPattern(
-  minute: number,
-  pattern: 'recover' | 'build' | 'push' | 'incline' | 'sprint',
-  maxAverage: number
-): TreadEntry {
-  switch (pattern) {
-    case 'recover':
-      return createTreadEntry(minute, null, { isRecover: true });
+// Parse the actual tread notation from blocks (e.g., "6, 7, 8 | 7, 8, 9")
+function parseTreadFromBlock(treadStr: string, minute: number): TreadEntry {
+  const lower = treadStr.toLowerCase();
 
-    case 'build':
-      return createTreadEntry(minute, { low: 5.5, mid: 6.5, high: 7.5 });
+  // Handle recover
+  if (lower.includes('recover')) {
+    return createTreadEntry(minute, null, { isRecover: true });
+  }
 
-    case 'push':
-      return createTreadEntry(minute, { low: 6, mid: 7, high: 8 });
+  // Handle sprint
+  const isSprint = lower.includes('sprint');
 
-    case 'incline': {
-      const incline = Math.floor(Math.random() * 4) + 3; // 3-6%
-      return createTreadEntry(minute, { low: 5, mid: 6, high: 7 }, { inclinePercent: incline });
+  // Extract incline if present (e.g., "3% 6, 7, 8")
+  const inclineMatch = treadStr.match(/(\d+)%/);
+  const inclinePercent = inclineMatch ? parseInt(inclineMatch[1]) : 0;
+
+  // Extract speeds - find all number patterns like "6, 7, 8"
+  const speedMatches = treadStr.match(/[\d.]+,\s*[\d.]+,\s*[\d.]+/g);
+
+  if (speedMatches && speedMatches.length > 0) {
+    // Use first speed set for the entry
+    const nums = speedMatches[0].match(/[\d.]+/g);
+    if (nums && nums.length >= 3) {
+      const speeds = {
+        low: parseFloat(nums[0]),
+        mid: parseFloat(nums[1]),
+        high: parseFloat(nums[2])
+      };
+      return createTreadEntry(minute, speeds, {
+        isSprint,
+        inclinePercent
+      });
     }
-
-    case 'sprint':
-      return createTreadEntry(minute, { low: 6, mid: 8, high: 10 }, { isSprint: true });
-
-    default:
-      return createTreadEntry(minute, { low: 6, mid: 7, high: 8 });
-  }
-}
-
-// Get energy level from tread pattern
-function getEnergyLevelFromPattern(pattern: string): EnergyLevel {
-  switch (pattern) {
-    case 'recover':
-    case 'build':
-      return 'L1';
-    case 'push':
-    case 'incline':
-      return 'L2';
-    case 'sprint':
-      return 'L3';
-    default:
-      return 'L2';
-  }
-}
-
-// Select a valid block sequence based on remaining duration
-function selectBlockSequence(
-  isRound1: boolean,
-  remainingDuration: number,
-  usedBlockTypes: Set<BlockType>
-): BlockType[] {
-  const sequences = isRound1 ? TOTAL_BODY_BLOCK_SEQUENCES : ROUND_2_BLOCK_SEQUENCES;
-
-  // Filter sequences that would fit and don't reuse too many block types
-  const validSequences = sequences.filter(seq => {
-    // Check that at least some blocks are fresh
-    const newBlocks = seq.filter(type => !usedBlockTypes.has(type));
-    return newBlocks.length >= seq.length / 2;
-  });
-
-  if (validSequences.length === 0) {
-    return isRound1
-      ? ['chest', 'deadlift', 'power_finisher']
-      : ['back_rows', 'power_finisher'];
   }
 
-  return validSequences[Math.floor(Math.random() * validSequences.length)];
+  // Default fallback
+  return createTreadEntry(minute, { low: 6, mid: 7, high: 8 }, { isSprint });
 }
 
-// Generate a round using blocks
+// Determine energy level based on position in block and round
+function getEnergyLevel(
+  minuteInBlock: number,
+  blockDuration: number,
+  minuteInRound: number,
+  roundDuration: number
+): EnergyLevel {
+  const blockProgress = minuteInBlock / blockDuration;
+  const roundProgress = minuteInRound / roundDuration;
+
+  // First few minutes of round = warmup energy
+  if (roundProgress < 0.2) return 'L1';
+
+  // Last part of each block (hero moment) = high energy
+  if (blockProgress >= 0.7) return 'L3';
+
+  // Last part of round = high energy
+  if (roundProgress > 0.85) return 'L3';
+
+  return 'L2';
+}
+
+// Get blocks appropriate for a position in the round
+function getBlocksForPosition(
+  isFirstBlock: boolean,
+  isLastBlock: boolean,
+  round: number,
+  usedFocuses: Set<string>
+): ExerciseBlock[] {
+  if (isFirstBlock) {
+    return round === 1 ? ROUND1_WARMUPS : ROUND2_STARTERS;
+  }
+
+  // For last block, prefer power/explosive finishers
+  if (isLastBlock) {
+    const powerOptions = [...POWER_BLOCKS, ...BACK_BLOCKS.filter(b =>
+      b.exercises.some(e => e.floor.toLowerCase().includes('snatch') || e.floor.toLowerCase().includes('hi pull'))
+    )];
+    if (powerOptions.length > 0) return powerOptions;
+  }
+
+  // For middle blocks, choose based on variety
+  const allMiddle = [
+    ...CHEST_BLOCKS,
+    ...BACK_BLOCKS,
+    ...DEADLIFT_BLOCKS,
+    ...SQUAT_BLOCKS,
+    ...LUNGE_BLOCKS,
+    ...ARMS_BLOCKS,
+    ...CORE_BLOCKS
+  ];
+
+  // Filter out recently used focuses for variety
+  const available = allMiddle.filter(b => !usedFocuses.has(b.focus));
+  return available.length > 0 ? available : allMiddle;
+}
+
+// Generate a round using complete blocks
 function generateRoundFromBlocks(
   duration: number,
-  isRound1: boolean,
-  maxAverage: number,
-  usedBlockTypes: Set<BlockType>
+  roundNumber: number,
+  usedFocuses: Set<string>
 ): { tread: TreadEntry[]; floor: FloorEntry[] } {
   const minutes: GeneratedMinute[] = [];
   let currentMinute = 0;
 
-  // 1. Add warmup block (2-3 minutes)
-  const warmupBlocks = isRound1 ? WARMUP_BODYWEIGHT_BLOCKS : WARMUP_WEIGHTED_BLOCKS;
-  const warmupBlock = getRandomBlock(warmupBlocks);
+  // Determine number of blocks based on duration
+  // ~3-4 minutes per block on average
+  const targetBlocks = Math.max(2, Math.min(4, Math.floor(duration / 3)));
+  let blocksUsed = 0;
 
-  // Adjust warmup duration based on round length
-  const warmupDuration = Math.min(warmupBlock.duration, Math.floor(duration * 0.25));
+  while (currentMinute < duration) {
+    const remainingMinutes = duration - currentMinute;
+    const isFirstBlock = blocksUsed === 0;
+    const isLastBlock = remainingMinutes <= 4 || blocksUsed >= targetBlocks - 1;
 
-  for (let i = 0; i < warmupDuration && currentMinute < duration; i++) {
-    const exercise = warmupBlock.exercises[i] || warmupBlock.exercises[warmupBlock.exercises.length - 1];
+    // Get appropriate blocks for this position
+    const availableBlocks = getBlocksForPosition(
+      isFirstBlock,
+      isLastBlock,
+      roundNumber,
+      usedFocuses
+    );
 
-    // First minute of round 1 is always easier pace
-    const adjustedPattern = (currentMinute === 0 && isRound1) ? 'build' : exercise.treadPattern;
+    // Select a random block
+    const block = getRandomBlock(availableBlocks);
+    usedFocuses.add(block.focus);
 
-    minutes.push({
-      floor: {
-        minute: formatMinuteRange(currentMinute),
-        exercises: exercise.floor,
-        exerciseIds: [],
-        energyLevel: currentMinute < 2 ? 'L1' : 'L2'
-      },
-      tread: getTreadForPattern(currentMinute, adjustedPattern, maxAverage)
-    });
-    currentMinute++;
-  }
+    // Determine how many minutes to use from this block
+    const blockMinutes = Math.min(block.duration, remainingMinutes);
 
-  // 2. Determine remaining duration for main blocks and finisher
-  const remainingDuration = duration - currentMinute;
-  const finisherDuration = 2; // Always reserve 2 minutes for finisher
-  const mainBlocksDuration = remainingDuration - finisherDuration;
-
-  // 3. Select block sequence for main work
-  const blockSequence = selectBlockSequence(isRound1, mainBlocksDuration, usedBlockTypes);
-
-  // 4. Add main blocks (excluding finisher which we'll add at the end)
-  const mainBlockTypes = blockSequence.filter(type => type !== 'power_finisher');
-  let mainMinutesUsed = 0;
-  const targetMainMinutes = mainBlocksDuration;
-
-  for (const blockType of mainBlockTypes) {
-    if (mainMinutesUsed >= targetMainMinutes) break;
-
-    const blocks = getBlocksByType(blockType);
-    if (blocks.length === 0) continue;
-
-    const block = getRandomBlock(blocks);
-    usedBlockTypes.add(blockType);
-
-    // Calculate how many minutes to use from this block
-    const availableMinutes = targetMainMinutes - mainMinutesUsed;
-    const blockMinutes = Math.min(block.duration, availableMinutes);
-
-    for (let i = 0; i < blockMinutes && currentMinute < duration - finisherDuration; i++) {
+    // Add exercises from block
+    for (let i = 0; i < blockMinutes; i++) {
       const exercise = block.exercises[i] || block.exercises[block.exercises.length - 1];
-
-      // Determine energy level based on position in round
-      const roundProgress = currentMinute / duration;
-      let energyLevel: EnergyLevel = 'L2';
-      if (roundProgress < 0.25) energyLevel = 'L1';
-      else if (roundProgress > 0.8) energyLevel = 'L3';
+      const energyLevel = getEnergyLevel(i, block.duration, currentMinute, duration);
 
       minutes.push({
         floor: {
@@ -176,50 +174,12 @@ function generateRoundFromBlocks(
           exerciseIds: [],
           energyLevel
         },
-        tread: getTreadForPattern(currentMinute, exercise.treadPattern, maxAverage)
+        tread: parseTreadFromBlock(exercise.tread, currentMinute)
       });
       currentMinute++;
-      mainMinutesUsed++;
     }
-  }
 
-  // 5. Fill any remaining main minutes if needed
-  while (currentMinute < duration - finisherDuration) {
-    const fillBlocks = [...getBlocksByType('squat'), ...getBlocksByType('core')];
-    const fillBlock = getRandomBlock(fillBlocks);
-    const exercise = fillBlock.exercises[0];
-
-    minutes.push({
-      floor: {
-        minute: formatMinuteRange(currentMinute),
-        exercises: exercise.floor,
-        exerciseIds: [],
-        energyLevel: 'L2'
-      },
-      tread: getTreadForPattern(currentMinute, exercise.treadPattern, maxAverage)
-    });
-    currentMinute++;
-  }
-
-  // 6. Add power finisher (last 2 minutes)
-  const finisherBlock = getRandomBlock(POWER_FINISHER_BLOCKS);
-
-  for (let i = 0; i < finisherDuration && currentMinute < duration; i++) {
-    const exercise = finisherBlock.exercises[i] || finisherBlock.exercises[finisherBlock.exercises.length - 1];
-    const isLastMinute = currentMinute === duration - 1;
-
-    minutes.push({
-      floor: {
-        minute: formatMinuteRange(currentMinute),
-        exercises: exercise.floor,
-        exerciseIds: [],
-        energyLevel: 'L3'
-      },
-      tread: isLastMinute
-        ? createTreadEntry(currentMinute, { low: 6, mid: 8, high: 10 }, { isSprint: true })
-        : getTreadForPattern(currentMinute, exercise.treadPattern, maxAverage)
-    });
-    currentMinute++;
+    blocksUsed++;
   }
 
   return {
@@ -230,14 +190,13 @@ function generateRoundFromBlocks(
 
 // Main generation function
 export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
-  const usedBlockTypes = new Set<BlockType>();
+  const usedFocuses = new Set<string>();
 
   // Generate Round 1
   const round1Data = generateRoundFromBlocks(
     config.round1Duration,
-    true, // isRound1
-    config.maxTreadAverage,
-    usedBlockTypes
+    1,
+    usedFocuses
   );
 
   const round1: Round = {
@@ -248,12 +207,11 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
     floor: round1Data.floor
   };
 
-  // Generate Round 2
+  // Generate Round 2 (different focuses for variety)
   const round2Data = generateRoundFromBlocks(
     config.round2Duration,
-    false, // isRound1
-    config.maxTreadAverage,
-    usedBlockTypes
+    2,
+    usedFocuses
   );
 
   const round2: Round = {
@@ -285,7 +243,7 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
 export function createDefaultConfig(): GeneratorConfig {
   return {
     classType: 'total_body',
-    date: getToday(),
+    date: new Date().toISOString().split('T')[0],
     round1Duration: 12,
     round2Duration: 9,
     round1Equipment: '2 Heavy Dumbbells',

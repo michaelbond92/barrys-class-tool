@@ -15,6 +15,7 @@ interface ClassPreviewProps {
   onToggleEdit: () => void;
   onSave: () => void;
   onReset: () => void;
+  onCompare?: () => void;
 }
 
 export function ClassPreview({
@@ -24,7 +25,8 @@ export function ClassPreview({
   isEditing,
   onToggleEdit,
   onSave,
-  onReset
+  onReset,
+  onCompare
 }: ClassPreviewProps) {
   const [copySuccess, setCopySuccess] = React.useState(false);
 
@@ -81,6 +83,15 @@ export function ClassPreview({
             >
               Export XLSX
             </Button>
+            {onCompare && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onCompare}
+              >
+                Compare
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"

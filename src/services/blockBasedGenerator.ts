@@ -7,7 +7,8 @@ import {
   TreadEntry,
   FloorEntry,
   GeneratorConfig,
-  EnergyLevel
+  EnergyLevel,
+  Equipment
 } from '../types';
 import { generateId } from '../utils/dateUtils';
 import { formatMinuteRange } from '../utils/formatUtils';
@@ -16,8 +17,22 @@ import {
   getRandomFloorBlock,
   getRandomTreadBlock,
   getAvailableLengths,
-  BlockCategory
+  BlockCategory,
+  getAllTreadBlocks,
+  getAllFloorBlocks
 } from '../data/exerciseBlocks';
+import {
+  selectContextualWarmup,
+  shouldRequireWgsAndCatCow,
+  scoreWarmupRelevance,
+  hasWgsAndCatCow
+} from './warmupSelectionService';
+import {
+  analyzeTreadBlock,
+  scoreBlockFlow,
+  getPositionInRound,
+  TreadBlockProfile
+} from './treadFlowService';
 
 // Parse tread notation from the block (e.g., "6, 7, 8 | 7, 8, 9")
 // IMPORTANT: Preserves the original raw string from the block
@@ -147,6 +162,21 @@ function floorEndsWithSame(block: string[]): boolean {
   return block.length > 0 && block[block.length - 1].toLowerCase().startsWith('same');
 }
 
+// Get the content of the most recent complete tread block from entries
+function getPreviousBlockContent(treadEntries: TreadEntry[]): string[] | null {
+  if (treadEntries.length === 0) return null;
+
+  // Find the last block index
+  const lastEntry = treadEntries[treadEntries.length - 1];
+  const lastBlockIndex = lastEntry.blockIndex;
+
+  // Collect all entries from that block
+  const blockEntries = treadEntries.filter(e => e.blockIndex === lastBlockIndex);
+
+  // Return the raw content as an array
+  return blockEntries.map(e => e.raw);
+}
+
 // Plan block lengths that sum exactly to the target duration
 // This ensures no blocks are truncated
 function planBlockLengths(duration: number, category: BlockCategory): number[] {
@@ -210,7 +240,8 @@ function generateRound(
   duration: number,
   roundNumber: number,
   usedFloorBlocks: Set<string>,
-  usedTreadBlocks: Set<string>
+  usedTreadBlocks: Set<string>,
+  equipment: Equipment
 ): { tread: TreadEntry[]; floor: FloorEntry[] } {
   const treadEntries: TreadEntry[] = [];
   const floorEntries: FloorEntry[] = [];
@@ -227,9 +258,12 @@ function generateRound(
 
   // Plan lengths: first block warmup (if Round 1), rest are workouts
   let plannedLengths: number[];
+  let warmupLength = 0;
   if (useWarmup) {
+    // Calculate warmup length (variable, typically 2-4 minutes)
     const warmupLengths = planBlockLengths(3, warmupCategory); // ~3 min warmup
-    const workoutLengths = planBlockLengths(duration - 3, workoutCategory);
+    warmupLength = warmupLengths.reduce((a, b) => a + b, 0);
+    const workoutLengths = planBlockLengths(duration - warmupLength, workoutCategory);
     plannedLengths = [...warmupLengths, ...workoutLengths];
   } else {
     plannedLengths = planBlockLengths(duration, workoutCategory);
@@ -246,12 +280,42 @@ function generateRound(
       plannedLengths.push(len);
       remaining -= len;
     }
+    warmupLength = useWarmup ? plannedLengths[0] : 0;
   }
+
+  // For Round 1: Pre-select workout blocks to enable contextual warmup selection
+  let preSelectedWorkoutContent: string[] = [];
+  if (useWarmup) {
+    // Get workout block lengths (skip warmup)
+    const workoutLengths = plannedLengths.slice(warmupLength > 0 ? 1 : 0);
+
+    // Sample some workout blocks to understand workout content
+    for (const len of workoutLengths.slice(0, 3)) { // Sample first 3 blocks
+      const workoutBlocks = getAllFloorBlocks(workoutCategory, len as 2 | 3 | 4, equipment);
+      if (workoutBlocks.length > 0) {
+        const randomBlock = workoutBlocks[Math.floor(Math.random() * workoutBlocks.length)];
+        preSelectedWorkoutContent.push(...randomBlock.block);
+      }
+    }
+  }
+
+  // Determine if we should require WGS + Cat/Cow (80% of the time)
+  const requireWgsAndCatCow = useWarmup ? shouldRequireWgsAndCatCow() : false;
 
   // Track forced Left block for Right/Left balancing
   let forcedLeftFloorBlock: string[] | null = null;
   let forcedLeftLibraryIndex = 0;
   let forcedLeftLibraryTotal = 0;
+  let forcedLeftIsCustom = false;
+
+  // Pre-selected contextual warmup for Round 1
+  let contextualWarmupBlock: string[] | null = null;
+  if (useWarmup && preSelectedWorkoutContent.length > 0) {
+    const warmupSelection = selectContextualWarmup(preSelectedWorkoutContent, requireWgsAndCatCow);
+    if (warmupSelection) {
+      contextualWarmupBlock = warmupSelection.content;
+    }
+  }
 
   for (let blockIdx = 0; blockIdx < plannedLengths.length; blockIdx++) {
     const blockLength = plannedLengths[blockIdx];
@@ -268,66 +332,177 @@ function generateRound(
     const remainingAfterThis = plannedLengths.slice(blockIdx + 1).reduce((a, b) => a + b, 0);
     const canFitLeftFollowup = remainingAfterThis >= blockLength;
 
-    // Get floor block - either forced Left or random selection
+    // Get floor block - either forced Left, contextual warmup, or random selection
     let floorBlock: string[];
     let floorLibraryIndex: number;
     let floorLibraryTotal: number;
+    let floorIsCustom: boolean;
 
     if (forcedLeftFloorBlock) {
       floorBlock = forcedLeftFloorBlock;
       floorLibraryIndex = forcedLeftLibraryIndex;
       floorLibraryTotal = forcedLeftLibraryTotal;
+      floorIsCustom = forcedLeftIsCustom;
       forcedLeftFloorBlock = null;
+    } else if (isFirstBlock && useWarmup && contextualWarmupBlock && contextualWarmupBlock.length >= blockLength) {
+      // Use contextually selected warmup for first block of Round 1
+      // Ensure warmup block fits the planned length
+      floorBlock = contextualWarmupBlock.slice(0, blockLength);
+      floorLibraryIndex = 1;
+      floorLibraryTotal = 1;
+      floorIsCustom = false;
+
+      // Log warmup selection for debugging
+      const { hasWgs, hasCatCow } = hasWgsAndCatCow(floorBlock);
+      if (requireWgsAndCatCow && (!hasWgs || !hasCatCow)) {
+        // If we required both but didn't get both, that's ok - we still use best available
+        console.debug('Warmup selection: WGS=' + hasWgs + ', Cat/Cow=' + hasCatCow);
+      }
     } else {
-      let floorSelection = getRandomFloorBlock(category, blockLength);
+      let floorSelection = getRandomFloorBlock(category, blockLength, equipment);
       let attempts = 0;
 
-      while (floorSelection && attempts < 30) {
-        const alreadyUsed = usedFloorBlocks.has(floorSelection.block.join('|'));
-        const badRightOnlyAtEnd = isRightOnlyBlock(floorSelection.block) && (isLastBlock || !canFitLeftFollowup);
-        const badSameAtStart = isFirstBlock && floorStartsWithSame(floorSelection.block);
-        const badSameAtEnd = isLastBlock && floorEndsWithSame(floorSelection.block);
+      // For warmup blocks, score based on relevance to workout content
+      if (category === 'warmups' && preSelectedWorkoutContent.length > 0) {
+        const allWarmups = getAllFloorBlocks(category, blockLength, equipment);
+        const scoredWarmups = allWarmups
+          .filter(b => !usedFloorBlocks.has(b.block.join('|')))
+          .map(b => ({
+            ...b,
+            score: scoreWarmupRelevance(b.block, preSelectedWorkoutContent),
+            ...hasWgsAndCatCow(b.block)
+          }))
+          .sort((a, b) => {
+            // Prioritize blocks with both WGS and Cat/Cow if required
+            if (requireWgsAndCatCow) {
+              const aHasBoth = a.hasWgs && a.hasCatCow;
+              const bHasBoth = b.hasWgs && b.hasCatCow;
+              if (aHasBoth !== bHasBoth) return bHasBoth ? 1 : -1;
+            }
+            return b.score - a.score;
+          });
 
-        if (!alreadyUsed && !badRightOnlyAtEnd && !badSameAtStart && !badSameAtEnd) {
-          break;
+        if (scoredWarmups.length > 0) {
+          // Pick from top 3 scored warmups
+          const topN = scoredWarmups.slice(0, Math.min(3, scoredWarmups.length));
+          const selected = topN[Math.floor(Math.random() * topN.length)];
+          floorSelection = {
+            block: selected.block,
+            index: 1,
+            total: scoredWarmups.length,
+            isCustom: selected.isCustom
+          };
         }
+      } else {
+        // Standard selection for workout blocks
+        while (floorSelection && attempts < 30) {
+          const alreadyUsed = usedFloorBlocks.has(floorSelection.block.join('|'));
+          const badRightOnlyAtEnd = isRightOnlyBlock(floorSelection.block) && (isLastBlock || !canFitLeftFollowup);
+          const badSameAtStart = isFirstBlock && floorStartsWithSame(floorSelection.block);
+          const badSameAtEnd = isLastBlock && floorEndsWithSame(floorSelection.block);
 
-        floorSelection = getRandomFloorBlock(category, blockLength);
-        attempts++;
+          if (!alreadyUsed && !badRightOnlyAtEnd && !badSameAtStart && !badSameAtEnd) {
+            break;
+          }
+
+          floorSelection = getRandomFloorBlock(category, blockLength, equipment);
+          attempts++;
+        }
       }
 
       floorBlock = floorSelection?.block || ['Exercise ' + currentMinute];
       floorLibraryIndex = floorSelection?.index || 0;
       floorLibraryTotal = floorSelection?.total || 0;
+      floorIsCustom = floorSelection?.isCustom || false;
 
       if (isRightOnlyBlock(floorBlock) && !isLastBlock && canFitLeftFollowup) {
         forcedLeftFloorBlock = createLeftVersion(floorBlock);
         forcedLeftLibraryIndex = floorLibraryIndex;
         forcedLeftLibraryTotal = floorLibraryTotal;
+        forcedLeftIsCustom = floorIsCustom;
       }
     }
 
-    // Get tread block
-    let treadSelection = getRandomTreadBlock(category, blockLength);
-    let treadAttempts = 0;
+    // Get tread block with flow awareness
+    let treadBlock: string[];
+    let treadLibraryIndex: number;
+    let treadLibraryTotal: number;
+    let treadIsCustom: boolean;
 
-    while (treadSelection && treadAttempts < 30) {
-      const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
-      const badStartRecover = isFirstBlock && treadStartsWithRecover(treadSelection.block);
-      const badEndRecover = isLastBlock && treadEndsWithRecover(treadSelection.block);
+    // Determine position in round for flow scoring
+    const position = getPositionInRound(currentMinute, duration);
 
-      if (!alreadyUsed && !badStartRecover && !badEndRecover) {
-        break;
+    // Get the previous tread block's profile (if any non-warmup block exists)
+    const prevTreadBlock = treadEntries.length > 0 && blockNumber > 1
+      ? getPreviousBlockContent(treadEntries)
+      : null;
+    const prevProfile = prevTreadBlock ? analyzeTreadBlock(prevTreadBlock) : null;
+
+    if (prevProfile && category === 'workouts') {
+      // Flow-aware selection: score all candidates and pick best compatible one
+      const allBlocks = getAllTreadBlocks(category, blockLength);
+      const validCandidates = allBlocks
+        .map((b, idx) => ({ ...b, originalIndex: idx + 1 }))
+        .filter(b => {
+          const key = b.block.join('|');
+          if (usedTreadBlocks.has(key)) return false;
+          if (isFirstBlock && treadStartsWithRecover(b.block)) return false;
+          if (isLastBlock && treadEndsWithRecover(b.block)) return false;
+          return true;
+        });
+
+      // Score candidates by flow compatibility
+      const scoredCandidates = validCandidates.map(candidate => {
+        const candidateProfile = analyzeTreadBlock(candidate.block);
+        const score = scoreBlockFlow(prevProfile, candidateProfile, position);
+        return { ...candidate, score, profile: candidateProfile };
+      });
+
+      // Sort by score (highest first)
+      scoredCandidates.sort((a, b) => b.score - a.score);
+
+      // Pick from top candidates (add some randomness among top scorers)
+      const topCandidates = scoredCandidates.filter(c => c.score >= 60);
+      const selection = topCandidates.length > 0
+        ? topCandidates[Math.floor(Math.random() * Math.min(3, topCandidates.length))]
+        : scoredCandidates[0];
+
+      if (selection) {
+        treadBlock = selection.block;
+        treadLibraryIndex = selection.originalIndex;
+        treadLibraryTotal = allBlocks.length;
+        treadIsCustom = selection.isCustom;
+      } else {
+        // Fallback to random if no candidates
+        const fallback = getRandomTreadBlock(category, blockLength);
+        treadBlock = fallback?.block || Array(blockLength).fill('6, 7, 8');
+        treadLibraryIndex = fallback?.index || 0;
+        treadLibraryTotal = fallback?.total || 0;
+        treadIsCustom = fallback?.isCustom || false;
+      }
+    } else {
+      // First block or warmup: use original random selection with constraints
+      let treadSelection = getRandomTreadBlock(category, blockLength);
+      let treadAttempts = 0;
+
+      while (treadSelection && treadAttempts < 30) {
+        const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
+        const badStartRecover = isFirstBlock && treadStartsWithRecover(treadSelection.block);
+        const badEndRecover = isLastBlock && treadEndsWithRecover(treadSelection.block);
+
+        if (!alreadyUsed && !badStartRecover && !badEndRecover) {
+          break;
+        }
+
+        treadSelection = getRandomTreadBlock(category, blockLength);
+        treadAttempts++;
       }
 
-      treadSelection = getRandomTreadBlock(category, blockLength);
-      treadAttempts++;
+      treadBlock = treadSelection?.block || Array(blockLength).fill('6, 7, 8');
+      treadLibraryIndex = treadSelection?.index || 0;
+      treadLibraryTotal = treadSelection?.total || 0;
+      treadIsCustom = treadSelection?.isCustom || false;
     }
-
-    // Tread block fallback
-    const treadBlock = treadSelection?.block || Array(blockLength).fill('6, 7, 8');
-    const treadLibraryIndex = treadSelection?.index || 0;
-    const treadLibraryTotal = treadSelection?.total || 0;
 
     // Mark as used
     usedFloorBlocks.add(floorBlock.join('|'));
@@ -345,7 +520,9 @@ function generateRound(
         blockIndex: blockNumber,
         blockType,
         libraryIndex: floorLibraryIndex,
-        libraryTotal: floorLibraryTotal
+        libraryTotal: floorLibraryTotal,
+        blockLength,
+        isCustomBlock: floorIsCustom
       });
 
       const treadEntry = parseTreadFromString(
@@ -356,6 +533,8 @@ function generateRound(
       treadEntry.blockType = blockType;
       treadEntry.libraryIndex = treadLibraryIndex;
       treadEntry.libraryTotal = treadLibraryTotal;
+      treadEntry.blockLength = blockLength;
+      treadEntry.isCustomBlock = treadIsCustom;
       treadEntries.push(treadEntry);
 
       currentMinute++;
@@ -375,7 +554,8 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
     config.round1Duration,
     1,
     usedFloorBlocks,
-    usedTreadBlocks
+    usedTreadBlocks,
+    config.round1Equipment
   );
 
   const round1: Round = {
@@ -391,7 +571,8 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
     config.round2Duration,
     2,
     usedFloorBlocks,
-    usedTreadBlocks
+    usedTreadBlocks,
+    config.round2Equipment
   );
 
   const round2: Round = {

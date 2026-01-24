@@ -172,7 +172,7 @@ function indexRound(
   const equipment = parseEquipmentToSet(roundData.equipment);
   const duration = roundData.minutes.length;
 
-  // Parse all minutes
+  // Parse all minutes (preserving warmup flags from import)
   const pairedMinutes: PairedMinute[] = roundData.minutes.map((m, idx) => ({
     minuteLabel: m.minute,
     minuteIndex: idx,
@@ -184,9 +184,10 @@ function indexRound(
       isRoundFinisher: idx === roundData.minutes.length - 1,
     }),
     notes: m.notes,
+    isWarmup: m.isWarmup, // Preserve warmup detection from Excel cell color
   }));
 
-  // Identify blocks
+  // Identify blocks (with warmup info from cell colors)
   const floorBlocks = identifyFloorBlocks(pairedMinutes, roundId, context);
   const treadBlocks = identifyTreadBlocks(pairedMinutes, roundId, context);
 
@@ -247,7 +248,7 @@ function indexRound(
 
 /**
  * Identify floor blocks from paired minutes
- * Uses warmup (first 3 min) vs workout distinction
+ * Uses warmup flags from cell colors (Round 1 only) or falls back to first 3 min heuristic
  */
 function identifyFloorBlocks(
   minutes: PairedMinute[],
@@ -256,11 +257,31 @@ function identifyFloorBlocks(
 ): BlockMetadata[] {
   const blocks: BlockMetadata[] = [];
 
-  // Simple strategy: First 3 minutes = warmup, rest = workouts in 3-4 min blocks
-  const warmupEnd = Math.min(3, minutes.length);
+  // Detect warmup boundary using isWarmup flags from cell colors
+  // Only Round 1 has warmups - Round 2 starts directly with workout
+  let warmupEnd = 0;
+
+  if (context.roundNumber === 1) {
+    // Find where warmup ends by looking for last consecutive warmup minute
+    for (let i = 0; i < minutes.length; i++) {
+      if (minutes[i].isWarmup) {
+        warmupEnd = i + 1;
+      } else if (warmupEnd > 0) {
+        // Found first non-warmup after warmups started
+        break;
+      }
+    }
+
+    // Fallback to first 3 minutes if no warmup flags detected
+    // (for older imports without color detection)
+    if (warmupEnd === 0) {
+      warmupEnd = Math.min(3, minutes.length);
+    }
+  }
+
   const workoutStart = warmupEnd;
 
-  // Warmup block
+  // Warmup block (Round 1 only)
   if (warmupEnd > 0) {
     const warmupContent = minutes.slice(0, warmupEnd).map(m => m.floor.rawText);
     const warmupBlock = indexFloorBlock(warmupContent, {
@@ -395,6 +416,7 @@ function indexFloorBlock(
 
 /**
  * Identify tread blocks from paired minutes
+ * Uses warmup flags from cell colors (Round 1 only) or falls back to heuristic
  */
 function identifyTreadBlocks(
   minutes: PairedMinute[],
@@ -403,11 +425,27 @@ function identifyTreadBlocks(
 ): TreadBlockMetadata[] {
   const blocks: TreadBlockMetadata[] = [];
 
-  // Similar strategy to floor blocks
-  const warmupEnd = Math.min(3, minutes.length);
+  // Detect warmup boundary using isWarmup flags (same logic as floor blocks)
+  let warmupEnd = 0;
+
+  if (context.roundNumber === 1) {
+    for (let i = 0; i < minutes.length; i++) {
+      if (minutes[i].isWarmup) {
+        warmupEnd = i + 1;
+      } else if (warmupEnd > 0) {
+        break;
+      }
+    }
+
+    // Fallback to first 3 minutes if no warmup flags detected
+    if (warmupEnd === 0) {
+      warmupEnd = Math.min(3, minutes.length);
+    }
+  }
+
   const workoutStart = warmupEnd;
 
-  // Warmup block
+  // Warmup block (Round 1 only)
   if (warmupEnd > 0) {
     const warmupContent = minutes.slice(0, warmupEnd).map(m => m.tread.rawText);
     const warmupBlock = indexTreadBlock(warmupContent, {

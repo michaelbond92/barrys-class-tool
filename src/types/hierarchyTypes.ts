@@ -244,6 +244,7 @@ export interface PairedMinute {
   tread: TreadMinuteMetadata;
   floor: ExerciseMetadata;
   notes?: string;
+  isWarmup?: boolean;                 // True if this minute is part of warmup (from green cell in source)
 }
 
 // ============================================================================
@@ -560,28 +561,26 @@ export interface SearchResult<T> {
 // IMPORT/EXPORT
 // ============================================================================
 
+export interface ImportedMinute {
+  minute: string;
+  tread: string;
+  floor: string;
+  notes?: string;
+  isWarmup?: boolean;  // Detected from green cell color in source Excel
+}
+
 export interface ImportedClass {
   sourceSheet: string;
   date: string;
   round1: {
     equipment: string;
     forecast?: string;
-    minutes: Array<{
-      minute: string;
-      tread: string;
-      floor: string;
-      notes?: string;
-    }>;
+    minutes: ImportedMinute[];
   };
   round2: {
     equipment: string;
     forecast?: string;
-    minutes: Array<{
-      minute: string;
-      tread: string;
-      floor: string;
-      notes?: string;
-    }>;
+    minutes: ImportedMinute[];
   };
   parseErrors: string[];
   parseWarnings: string[];

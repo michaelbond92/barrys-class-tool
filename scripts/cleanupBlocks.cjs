@@ -96,6 +96,29 @@ content = content.replace(/(\w)\s*\|\s*(\w)/g, '$1 | $2');
 // Fix double spaces
 content = content.replace(/  +/g, ' ');
 
+// ============================================
+// TREAD DATA FIXES
+// ============================================
+
+// Fix forward slashes that should be pipes in tread blocks
+content = content.replace(/(\d)\s*\/\s*(\d)/g, '$1 | $2');
+content = content.replace(/(\d)\s*\/\s*Sprint/gi, '$1 | Sprint');
+content = content.replace(/(\d)\/\s*(\d)/g, '$1 | $2');
+
+// Fix missing commas in speed triplets (e.g., "5 6, 7" -> "5, 6, 7")
+content = content.replace(/(\d+\.?\d*)\s+(\d+\.?\d*),\s*(\d+\.?\d*)/g, '$1, $2, $3');
+content = content.replace(/(\d+\.?\d*),\s*(\d+\.?\d*)\s+(\d+\.?\d*)/g, '$1, $2, $3');
+
+// Fix specific corrupted entries
+content = content.replace(/"8\.5, 9\.5, 10\., 5 \/ 5, 67"/g, '"8.5, 9.5, 10.5 | 5, 6, 7"');
+content = content.replace(/"4% 7\.5 8\.5, 95\. \| 6\.5, 7\.5, 7\.5"/g, '"4% 7.5, 8.5, 9.5 | 6.5, 7.5, 8.5"');
+
+// Fix "5 ,6 7" pattern (space before comma)
+content = content.replace(/(\d+\.?\d*)\s*,\s*(\d+\.?\d*)\s+(\d+\.?\d*)/g, '$1, $2, $3');
+
+// Fix spacing around % in inclines
+content = content.replace(/(\d+)%\s*(\d)/g, '$1% $2');
+
 // Fix "5. 6, 7" typos (period instead of comma)
 content = content.replace(/(\d+)\.\s+(\d+),\s*(\d+)/g, '$1, $2, $3');
 

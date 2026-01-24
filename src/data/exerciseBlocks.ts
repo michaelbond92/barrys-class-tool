@@ -1279,7 +1279,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "5, 6, 7 | 6% 7, 8, 9",
- "5 6, 7 | 6% 8, 9, 10"
+ "5, 6, 7 | 6% 8, 9, 10"
  ]
  ],
  "3": [
@@ -1433,7 +1433,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "5, 6, 7",
- "7, 8, 9 / 7.5, 8.5, 9.5",
+ "7, 8, 9 | 7.5, 8.5, 9.5",
  "7.5, 8.5, 9.5 | 5, 6, 7",
  "5, 6, 7 | Sprint (45 Seconds)"
  ],
@@ -1463,8 +1463,8 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "5, 6, 7",
- "7, 8, 9 / 7.5, 8.5, 9.5",
- "7.5 8.5, 9.5 | 5, 6, 7",
+ "7, 8, 9 | 7.5, 8.5, 9.5",
+ "7.5, 8.5, 9.5 | 5, 6, 7",
  "5, 6, 7 | Sprint (45 Seconds)"
  ],
  [
@@ -1719,7 +1719,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "8, 9, 10 / 5.5, 6.5, 7.5",
+ "8, 9, 10 | 5.5, 6.5, 7.5",
  " | Sprint (45 Seconds)"
  ],
  [
@@ -1729,7 +1729,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "8, 9, 10 / 5.5, 6.5, 7.5",
+ "8, 9, 10 | 5.5, 6.5, 7.5",
  "5.5, 6.5, 7.5\\ Sprint (45 seconds)"
  ],
  [
@@ -1779,12 +1779,12 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "8, 9, 10 / 5.5, 6.5, 7.5",
- "5.5, 6.5, 7.5 | Sprint 45 Seconds)"
+ "8, 9, 10 | 5.5, 6.5, 7.5",
+ "5.5, 6.5, 7.5 | Sprint (45 Seconds)"
  ],
  [
  "RECOVER",
- "8.5, 9.5, 10., 5 / 5, 67",
+ "8.5, 9.5, 10.5 | 5, 6, 7",
  "5, 6, 7 | Sprint (45 Seconds)"
  ],
  [
@@ -1885,7 +1885,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  [
  "RECOVER",
  "7.5, 8.5, 9.5 | 8, 9, 10",
- "5, 6 7, | Sprint (30 Seconds)"
+ "5, 6, 7, | Sprint (30 Seconds)"
  ],
  [
  "RECOVER",
@@ -1899,7 +1899,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "5% 5 ,6 7 | 7, 8, 9",
+ "5% 5, 6, 7 | 7, 8, 9",
  "7, 8, 9 | Sprint (30 Seconds)"
  ],
  [
@@ -1969,7 +1969,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "4% 7.5 8.5, 95. | 6.5, 7.5, 7.5",
+ "4% 7.5, 8.5, 9.5 | 6.5, 7.5, 8.5",
  "5, 6, 7 | Sprint"
  ],
  [
@@ -1979,12 +1979,12 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "8, 9, 10 / 5.5, 6.5, 7.5",
+ "8, 9, 10 | 5.5, 6.5, 7.5",
  "5.5, 6.5, 7.5 | Sprint (40 Seconds)"
  ],
  [
  "RECOVER",
- "8.5, 9.5, 10.5 / 5, 6, 7",
+ "8.5, 9.5, 10.5 | 5, 6, 7",
  "5, 6, 7 | Sprint (40 Seconds)"
  ],
  [
@@ -2172,9 +2172,9 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "8, 9, 10 / 7, 8, 9",
- "7, 8, 9 / 5, 6, 7",
- "5, 6, 7/ 45 Seconds"
+ "8, 9, 10 | 7, 8, 9",
+ "7, 8, 9 | 5, 6, 7",
+ "5, 6, 7 | 45 Seconds"
  ],
  [
  "RECOVER",
@@ -2226,7 +2226,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "Recover",
- "7, 8, 9 / 8, 9, 10",
+ "7, 8, 9 | 8, 9, 10",
  "8, 9, 10 | 5, 6, 7",
  "5, 6, 7 | Sprint (45 Seconds)"
  ],
@@ -2274,7 +2274,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "7, 8, 9 / 8, 9, 10",
+ "7, 8, 9 | 8, 9, 10",
  "8, 9, 10 | 5, 6, 7",
  "5, 6, 7 | Sprint (45 Seconds)"
  ],
@@ -2304,7 +2304,7 @@ export const TREAD_BLOCKS: BlockLibrary = {
  ],
  [
  "RECOVER",
- "7, 8, 9 | 8.5 9.5, 10.5",
+ "7, 8, 9 | 8.5, 9.5, 10.5",
  "5, 6, 7 | 7, 8, 9",
  "8, 9, 10 | Sprint (30 Seconds)"
  ],

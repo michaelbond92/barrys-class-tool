@@ -1,5 +1,5 @@
 // Block-based class generator using real Barry's class patterns
-// Each block is self-contained with hero moment at the end
+// Each block is a complete paired floor + tread sequence
 
 import {
   ClassPlan,
@@ -13,27 +13,16 @@ import { generateId } from '../utils/dateUtils';
 import { formatMinuteRange } from '../utils/formatUtils';
 import { createTreadEntry, calculateTreadAverage } from './treadParser';
 import {
-  ExerciseBlock,
+  WorkoutBlock,
   getRandomBlock,
+  getBlockDuration,
   ROUND1_WARMUPS,
   ROUND2_STARTERS,
-  CHEST_BLOCKS,
-  BACK_BLOCKS,
-  DEADLIFT_BLOCKS,
-  SQUAT_BLOCKS,
-  LUNGE_BLOCKS,
-  ARMS_BLOCKS,
-  CORE_BLOCKS,
-  POWER_BLOCKS
+  WORKOUT_BLOCKS
 } from '../data/exerciseBlocks';
 
-interface GeneratedMinute {
-  floor: FloorEntry;
-  tread: TreadEntry;
-}
-
-// Parse the actual tread notation from blocks (e.g., "6, 7, 8 | 7, 8, 9")
-function parseTreadFromBlock(treadStr: string, minute: number): TreadEntry {
+// Parse tread notation from the block (e.g., "6, 7, 8 | 7, 8, 9")
+function parseTreadFromString(treadStr: string, minute: number): TreadEntry {
   const lower = treadStr.toLowerCase();
 
   // Handle recover
@@ -48,11 +37,10 @@ function parseTreadFromBlock(treadStr: string, minute: number): TreadEntry {
   const inclineMatch = treadStr.match(/(\d+)%/);
   const inclinePercent = inclineMatch ? parseInt(inclineMatch[1]) : 0;
 
-  // Extract speeds - find all number patterns like "6, 7, 8"
+  // Extract speeds - find patterns like "6, 7, 8"
   const speedMatches = treadStr.match(/[\d.]+,\s*[\d.]+,\s*[\d.]+/g);
 
   if (speedMatches && speedMatches.length > 0) {
-    // Use first speed set for the entry
     const nums = speedMatches[0].match(/[\d.]+/g);
     if (nums && nums.length >= 3) {
       const speeds = {
@@ -60,10 +48,7 @@ function parseTreadFromBlock(treadStr: string, minute: number): TreadEntry {
         mid: parseFloat(nums[1]),
         high: parseFloat(nums[2])
       };
-      return createTreadEntry(minute, speeds, {
-        isSprint,
-        inclinePercent
-      });
+      return createTreadEntry(minute, speeds, { isSprint, inclinePercent });
     }
   }
 
@@ -71,134 +56,88 @@ function parseTreadFromBlock(treadStr: string, minute: number): TreadEntry {
   return createTreadEntry(minute, { low: 6, mid: 7, high: 8 }, { isSprint });
 }
 
-// Determine energy level based on position in block and round
-function getEnergyLevel(
-  minuteInBlock: number,
-  blockDuration: number,
-  minuteInRound: number,
-  roundDuration: number
-): EnergyLevel {
-  const blockProgress = minuteInBlock / blockDuration;
-  const roundProgress = minuteInRound / roundDuration;
+// Determine energy level based on position in round
+function getEnergyLevel(minuteInRound: number, roundDuration: number): EnergyLevel {
+  const progress = minuteInRound / roundDuration;
 
-  // First few minutes of round = warmup energy
-  if (roundProgress < 0.2) return 'L1';
-
-  // Last part of each block (hero moment) = high energy
-  if (blockProgress >= 0.7) return 'L3';
-
-  // Last part of round = high energy
-  if (roundProgress > 0.85) return 'L3';
-
-  return 'L2';
+  if (progress < 0.25) return 'L1';  // First quarter - warmup
+  if (progress > 0.85) return 'L3';  // Last bit - finisher
+  return 'L2';  // Middle - building
 }
 
-// Get blocks appropriate for a position in the round
-function getBlocksForPosition(
-  isFirstBlock: boolean,
-  isLastBlock: boolean,
-  round: number,
-  usedFocuses: Set<string>
-): ExerciseBlock[] {
-  if (isFirstBlock) {
-    return round === 1 ? ROUND1_WARMUPS : ROUND2_STARTERS;
-  }
-
-  // For last block, prefer power/explosive finishers
-  if (isLastBlock) {
-    const powerOptions = [...POWER_BLOCKS, ...BACK_BLOCKS.filter(b =>
-      b.exercises.some(e => e.floor.toLowerCase().includes('snatch') || e.floor.toLowerCase().includes('hi pull'))
-    )];
-    if (powerOptions.length > 0) return powerOptions;
-  }
-
-  // For middle blocks, choose based on variety
-  const allMiddle = [
-    ...CHEST_BLOCKS,
-    ...BACK_BLOCKS,
-    ...DEADLIFT_BLOCKS,
-    ...SQUAT_BLOCKS,
-    ...LUNGE_BLOCKS,
-    ...ARMS_BLOCKS,
-    ...CORE_BLOCKS
-  ];
-
-  // Filter out recently used focuses for variety
-  const available = allMiddle.filter(b => !usedFocuses.has(b.focus));
-  return available.length > 0 ? available : allMiddle;
-}
-
-// Generate a round using complete blocks
-function generateRoundFromBlocks(
+// Generate a round by picking and concatenating blocks
+function generateRound(
   duration: number,
   roundNumber: number,
-  usedFocuses: Set<string>
+  usedBlocks: Set<string>
 ): { tread: TreadEntry[]; floor: FloorEntry[] } {
-  const minutes: GeneratedMinute[] = [];
+  const treadEntries: TreadEntry[] = [];
+  const floorEntries: FloorEntry[] = [];
   let currentMinute = 0;
 
-  // Determine number of blocks based on duration
-  // ~3-4 minutes per block on average
-  const targetBlocks = Math.max(2, Math.min(4, Math.floor(duration / 3)));
-  let blocksUsed = 0;
+  // 1. Pick opener block (warmup for R1, starter for R2+)
+  const openerBlocks = roundNumber === 1 ? ROUND1_WARMUPS : ROUND2_STARTERS;
+  const opener = getRandomBlock(openerBlocks);
 
-  while (currentMinute < duration) {
-    const remainingMinutes = duration - currentMinute;
-    const isFirstBlock = blocksUsed === 0;
-    const isLastBlock = remainingMinutes <= 4 || blocksUsed >= targetBlocks - 1;
+  // Add opener block
+  for (let i = 0; i < opener.floor.length && currentMinute < duration; i++) {
+    const energyLevel = getEnergyLevel(currentMinute, duration);
 
-    // Get appropriate blocks for this position
-    const availableBlocks = getBlocksForPosition(
-      isFirstBlock,
-      isLastBlock,
-      roundNumber,
-      usedFocuses
-    );
+    floorEntries.push({
+      minute: formatMinuteRange(currentMinute),
+      exercises: opener.floor[i],
+      exerciseIds: [],
+      energyLevel
+    });
 
-    // Select a random block
-    const block = getRandomBlock(availableBlocks);
-    usedFocuses.add(block.focus);
-
-    // Determine how many minutes to use from this block
-    const blockMinutes = Math.min(block.duration, remainingMinutes);
-
-    // Add exercises from block
-    for (let i = 0; i < blockMinutes; i++) {
-      const exercise = block.exercises[i] || block.exercises[block.exercises.length - 1];
-      const energyLevel = getEnergyLevel(i, block.duration, currentMinute, duration);
-
-      minutes.push({
-        floor: {
-          minute: formatMinuteRange(currentMinute),
-          exercises: exercise.floor,
-          exerciseIds: [],
-          energyLevel
-        },
-        tread: parseTreadFromBlock(exercise.tread, currentMinute)
-      });
-      currentMinute++;
-    }
-
-    blocksUsed++;
+    treadEntries.push(parseTreadFromString(opener.tread[i], currentMinute));
+    currentMinute++;
   }
 
-  return {
-    tread: minutes.map(m => m.tread),
-    floor: minutes.map(m => m.floor)
-  };
+  // 2. Fill remaining time with workout blocks
+  while (currentMinute < duration) {
+    const remainingMinutes = duration - currentMinute;
+
+    // Find blocks that fit (or are close to fitting)
+    const fittingBlocks = WORKOUT_BLOCKS.filter(b => {
+      const blockKey = b.floor.join('|');
+      const blockDuration = getBlockDuration(b);
+      // Block should fit and not be already used
+      return blockDuration <= remainingMinutes + 1 && !usedBlocks.has(blockKey);
+    });
+
+    // If no fitting blocks, use any block
+    const availableBlocks = fittingBlocks.length > 0 ? fittingBlocks : WORKOUT_BLOCKS;
+    const block = getRandomBlock(availableBlocks);
+
+    // Mark as used
+    usedBlocks.add(block.floor.join('|'));
+
+    // Add block (may be truncated if it doesn't fit exactly)
+    for (let i = 0; i < block.floor.length && currentMinute < duration; i++) {
+      const energyLevel = getEnergyLevel(currentMinute, duration);
+
+      floorEntries.push({
+        minute: formatMinuteRange(currentMinute),
+        exercises: block.floor[i],
+        exerciseIds: [],
+        energyLevel
+      });
+
+      treadEntries.push(parseTreadFromString(block.tread[i], currentMinute));
+      currentMinute++;
+    }
+  }
+
+  return { tread: treadEntries, floor: floorEntries };
 }
 
 // Main generation function
 export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
-  const usedFocuses = new Set<string>();
+  const usedBlocks = new Set<string>();
 
   // Generate Round 1
-  const round1Data = generateRoundFromBlocks(
-    config.round1Duration,
-    1,
-    usedFocuses
-  );
-
+  const round1Data = generateRound(config.round1Duration, 1, usedBlocks);
   const round1: Round = {
     number: 1,
     duration: config.round1Duration,
@@ -207,13 +146,8 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
     floor: round1Data.floor
   };
 
-  // Generate Round 2 (different focuses for variety)
-  const round2Data = generateRoundFromBlocks(
-    config.round2Duration,
-    2,
-    usedFocuses
-  );
-
+  // Generate Round 2
+  const round2Data = generateRound(config.round2Duration, 2, usedBlocks);
   const round2: Round = {
     number: 2,
     duration: config.round2Duration,

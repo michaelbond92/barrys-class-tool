@@ -63,6 +63,21 @@ function getEnergyLevel(minuteInRound: number, roundDuration: number): EnergyLev
   return 'L2';  // Middle - building
 }
 
+// Check if a tread block starts with RECOVER
+function treadStartsWithRecover(block: string[]): boolean {
+  return block.length > 0 && block[0].toLowerCase().includes('recover');
+}
+
+// Check if a tread block ends with RECOVER
+function treadEndsWithRecover(block: string[]): boolean {
+  return block.length > 0 && block[block.length - 1].toLowerCase().includes('recover');
+}
+
+// Check if a tread block ends with SPRINT
+function treadEndsWithSprint(block: string[]): boolean {
+  return block.length > 0 && block[block.length - 1].toLowerCase().includes('sprint');
+}
+
 // Pick a block length that fits the remaining time
 function pickBlockLength(remaining: number, category: BlockCategory): number {
   const available = getAvailableLengths(category);
@@ -124,12 +139,41 @@ function generateRound(
       attempts++;
     }
 
-    // Get random tread block of same length (can be from either category)
+    // Get random tread block of same length
+    // Additional constraints:
+    // - First block of round should NOT start with RECOVER
+    // - Last block of round should ideally end with SPRINT (not RECOVER)
+    const isLastBlock = (currentMinute + blockLength) >= duration;
+
     let treadBlock = getRandomTreadBlock(category, blockLength);
     attempts = 0;
-    while (treadBlock && usedTreadBlocks.has(treadBlock.join('|')) && attempts < 10) {
+    while (treadBlock && attempts < 20) {
+      const alreadyUsed = usedTreadBlocks.has(treadBlock.join('|'));
+      const badStartForFirstBlock = isFirstBlock && treadStartsWithRecover(treadBlock);
+      const badEndForLastBlock = isLastBlock && treadEndsWithRecover(treadBlock);
+
+      if (!alreadyUsed && !badStartForFirstBlock && !badEndForLastBlock) {
+        break; // Found a good block
+      }
+
       treadBlock = getRandomTreadBlock(category, blockLength);
       attempts++;
+    }
+
+    // If we couldn't find a perfect match, at least avoid RECOVER at start/end of round
+    if (attempts >= 20 && treadBlock) {
+      // Try one more time with relaxed constraints
+      for (let i = 0; i < 10; i++) {
+        const candidate = getRandomTreadBlock(category, blockLength);
+        if (candidate) {
+          const badStart = isFirstBlock && treadStartsWithRecover(candidate);
+          const badEnd = isLastBlock && treadEndsWithRecover(candidate);
+          if (!badStart && !badEnd) {
+            treadBlock = candidate;
+            break;
+          }
+        }
+      }
     }
 
     // Fallback if no blocks found

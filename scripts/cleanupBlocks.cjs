@@ -58,6 +58,7 @@ const exerciseReplacements = [
   [/\bHi\s+Pull/gi, 'High Pull'],
   [/\bBW\b/g, 'Bodyweight'],
   [/\bINC\b/gi, 'Incline'],
+  [/\bDM\b/g, 'Dynamic Mode'],
   [/\bSauts\b/g, 'Squats'],  // typo fix
 
   // Fix "Puhups" typo

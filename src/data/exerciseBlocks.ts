@@ -1402,10 +1402,10 @@ export const TREAD_BLOCKS: BlockLibrary = {
  "5, 6, 7 | 8, 9, 10"
  ],
  [
- "DM | DM RUN",
- "REST | DM SPRINT",
- "REST | DM SPRINT",
- "REST | DM SPRINT"
+ "Dynamic Mode | Dynamic Mode RUN",
+ "REST | Dynamic Mode SPRINT",
+ "REST | Dynamic Mode SPRINT",
+ "REST | Dynamic Mode SPRINT"
  ],
  [
  "5, 6, 7",

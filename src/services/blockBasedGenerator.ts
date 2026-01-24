@@ -1,5 +1,5 @@
 // Block-based class generator using real Barry's class patterns
-// Each block is a complete paired floor + tread sequence
+// Floor and Tread blocks are separate - can mix and match by length
 
 import {
   ClassPlan,
@@ -13,12 +13,10 @@ import { generateId } from '../utils/dateUtils';
 import { formatMinuteRange } from '../utils/formatUtils';
 import { createTreadEntry, calculateTreadAverage } from './treadParser';
 import {
-  WorkoutBlock,
-  getRandomBlock,
-  getBlockDuration,
-  ROUND1_WARMUPS,
-  ROUND2_STARTERS,
-  WORKOUT_BLOCKS
+  getRandomFloorBlock,
+  getRandomTreadBlock,
+  getAvailableLengths,
+  BlockCategory
 } from '../data/exerciseBlocks';
 
 // Parse tread notation from the block (e.g., "6, 7, 8 | 7, 8, 9")
@@ -65,68 +63,105 @@ function getEnergyLevel(minuteInRound: number, roundDuration: number): EnergyLev
   return 'L2';  // Middle - building
 }
 
-// Generate a round by picking and concatenating blocks
+// Pick a block length that fits the remaining time
+function pickBlockLength(remaining: number, category: BlockCategory): number {
+  const available = getAvailableLengths(category);
+
+  // Filter to lengths that fit
+  const fitting = available.filter(len => len <= remaining);
+
+  if (fitting.length === 0) {
+    // If nothing fits exactly, use smallest available
+    return available[0] || 3;
+  }
+
+  // Prefer 3-min blocks as they're most common, but vary it up
+  const weights = fitting.map(len => {
+    if (len === 3) return 3;  // Prefer 3-min
+    if (len === 4) return 2;  // Then 4-min
+    return 1;  // Then others
+  });
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let random = Math.random() * totalWeight;
+
+  for (let i = 0; i < fitting.length; i++) {
+    random -= weights[i];
+    if (random <= 0) return fitting[i];
+  }
+
+  return fitting[fitting.length - 1];
+}
+
+// Generate a round by picking blocks
 function generateRound(
   duration: number,
   roundNumber: number,
-  usedBlocks: Set<string>
+  usedFloorBlocks: Set<string>,
+  usedTreadBlocks: Set<string>
 ): { tread: TreadEntry[]; floor: FloorEntry[] } {
   const treadEntries: TreadEntry[] = [];
   const floorEntries: FloorEntry[] = [];
   let currentMinute = 0;
 
-  // 1. Pick opener block (warmup for R1, starter for R2+)
-  const openerBlocks = roundNumber === 1 ? ROUND1_WARMUPS : ROUND2_STARTERS;
-  const opener = getRandomBlock(openerBlocks);
+  // Determine if first block is warmup
+  let isFirstBlock = true;
 
-  // Add opener block
-  for (let i = 0; i < opener.floor.length && currentMinute < duration; i++) {
-    const energyLevel = getEnergyLevel(currentMinute, duration);
-
-    floorEntries.push({
-      minute: formatMinuteRange(currentMinute),
-      exercises: opener.floor[i],
-      exerciseIds: [],
-      energyLevel
-    });
-
-    treadEntries.push(parseTreadFromString(opener.tread[i], currentMinute));
-    currentMinute++;
-  }
-
-  // 2. Fill remaining time with workout blocks
   while (currentMinute < duration) {
-    const remainingMinutes = duration - currentMinute;
+    const remaining = duration - currentMinute;
 
-    // Find blocks that fit (or are close to fitting)
-    const fittingBlocks = WORKOUT_BLOCKS.filter(b => {
-      const blockKey = b.floor.join('|');
-      const blockDuration = getBlockDuration(b);
-      // Block should fit and not be already used
-      return blockDuration <= remainingMinutes + 1 && !usedBlocks.has(blockKey);
-    });
+    // Determine category (warmup for first block, workout for rest)
+    const category: BlockCategory = (isFirstBlock && roundNumber === 1) ? 'warmups' : 'workouts';
 
-    // If no fitting blocks, use any block
-    const availableBlocks = fittingBlocks.length > 0 ? fittingBlocks : WORKOUT_BLOCKS;
-    const block = getRandomBlock(availableBlocks);
+    // Pick a block length
+    const blockLength = pickBlockLength(remaining, category);
+
+    // Get random floor block of this length
+    let floorBlock = getRandomFloorBlock(category, blockLength);
+    let attempts = 0;
+    while (floorBlock && usedFloorBlocks.has(floorBlock.join('|')) && attempts < 10) {
+      floorBlock = getRandomFloorBlock(category, blockLength);
+      attempts++;
+    }
+
+    // Get random tread block of same length (can be from either category)
+    let treadBlock = getRandomTreadBlock(category, blockLength);
+    attempts = 0;
+    while (treadBlock && usedTreadBlocks.has(treadBlock.join('|')) && attempts < 10) {
+      treadBlock = getRandomTreadBlock(category, blockLength);
+      attempts++;
+    }
+
+    // Fallback if no blocks found
+    if (!floorBlock) floorBlock = ['Exercise ' + currentMinute];
+    if (!treadBlock) treadBlock = ['6, 7, 8'];
 
     // Mark as used
-    usedBlocks.add(block.floor.join('|'));
+    usedFloorBlocks.add(floorBlock.join('|'));
+    usedTreadBlocks.add(treadBlock.join('|'));
 
-    // Add block (may be truncated if it doesn't fit exactly)
-    for (let i = 0; i < block.floor.length && currentMinute < duration; i++) {
+    // Add block to round (truncate if needed to fit duration)
+    const minutesToAdd = Math.min(floorBlock.length, remaining);
+
+    for (let i = 0; i < minutesToAdd; i++) {
       const energyLevel = getEnergyLevel(currentMinute, duration);
 
       floorEntries.push({
         minute: formatMinuteRange(currentMinute),
-        exercises: block.floor[i],
+        exercises: floorBlock[i] || floorBlock[floorBlock.length - 1],
         exerciseIds: [],
         energyLevel
       });
 
-      treadEntries.push(parseTreadFromString(block.tread[i], currentMinute));
+      treadEntries.push(parseTreadFromString(
+        treadBlock[i] || treadBlock[treadBlock.length - 1],
+        currentMinute
+      ));
+
       currentMinute++;
     }
+
+    isFirstBlock = false;
   }
 
   return { tread: treadEntries, floor: floorEntries };
@@ -134,10 +169,17 @@ function generateRound(
 
 // Main generation function
 export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
-  const usedBlocks = new Set<string>();
+  const usedFloorBlocks = new Set<string>();
+  const usedTreadBlocks = new Set<string>();
 
   // Generate Round 1
-  const round1Data = generateRound(config.round1Duration, 1, usedBlocks);
+  const round1Data = generateRound(
+    config.round1Duration,
+    1,
+    usedFloorBlocks,
+    usedTreadBlocks
+  );
+
   const round1: Round = {
     number: 1,
     duration: config.round1Duration,
@@ -147,7 +189,13 @@ export function generateClassFromBlocks(config: GeneratorConfig): ClassPlan {
   };
 
   // Generate Round 2
-  const round2Data = generateRound(config.round2Duration, 2, usedBlocks);
+  const round2Data = generateRound(
+    config.round2Duration,
+    2,
+    usedFloorBlocks,
+    usedTreadBlocks
+  );
+
   const round2: Round = {
     number: 2,
     duration: config.round2Duration,

@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { generateId } from '../utils/dateUtils';
 import { formatMinuteRange } from '../utils/formatUtils';
-import { createTreadEntry, calculateTreadAverage } from './treadParser';
+import { calculateTreadAverage } from './treadParser';
 import {
   getRandomFloorBlock,
   getRandomTreadBlock,
@@ -20,12 +20,23 @@ import {
 } from '../data/exerciseBlocks';
 
 // Parse tread notation from the block (e.g., "6, 7, 8 | 7, 8, 9")
+// IMPORTANT: Preserves the original raw string from the block
 function parseTreadFromString(treadStr: string, minute: number): TreadEntry {
   const lower = treadStr.toLowerCase();
 
   // Handle recover
   if (lower.includes('recover')) {
-    return createTreadEntry(minute, null, { isRecover: true });
+    return {
+      minute: formatMinuteRange(minute),
+      raw: treadStr.trim(),  // Preserve original
+      speeds: [],
+      isRecover: true,
+      isSprint: false,
+      inclinePercent: 0,
+      lowestSpeed: 0,
+      effectiveSpeed: 0,
+      textColor: 'black'
+    };
   }
 
   // Handle sprint
@@ -35,23 +46,46 @@ function parseTreadFromString(treadStr: string, minute: number): TreadEntry {
   const inclineMatch = treadStr.match(/(\d+)%/);
   const inclinePercent = inclineMatch ? parseInt(inclineMatch[1]) : 0;
 
-  // Extract speeds - find patterns like "6, 7, 8"
+  // Extract ALL speed sets - find patterns like "6, 7, 8"
   const speedMatches = treadStr.match(/[\d.]+,\s*[\d.]+,\s*[\d.]+/g);
+  const speeds: { low: number; mid: number; high: number }[] = [];
 
-  if (speedMatches && speedMatches.length > 0) {
-    const nums = speedMatches[0].match(/[\d.]+/g);
-    if (nums && nums.length >= 3) {
-      const speeds = {
-        low: parseFloat(nums[0]),
-        mid: parseFloat(nums[1]),
-        high: parseFloat(nums[2])
-      };
-      return createTreadEntry(minute, speeds, { isSprint, inclinePercent });
+  if (speedMatches) {
+    for (const match of speedMatches) {
+      const nums = match.match(/[\d.]+/g);
+      if (nums && nums.length >= 3) {
+        speeds.push({
+          low: parseFloat(nums[0]),
+          mid: parseFloat(nums[1]),
+          high: parseFloat(nums[2])
+        });
+      }
     }
   }
 
-  // Default fallback
-  return createTreadEntry(minute, { low: 6, mid: 7, high: 8 }, { isSprint });
+  // Use first speed set for average calculation (or default)
+  const lowestSpeed = speeds.length > 0 ? speeds[0].low : 6;
+  const effectiveSpeed = lowestSpeed + (inclinePercent * 0.2);
+
+  // Determine text color
+  let textColor: 'black' | 'red' | 'purple' = 'black';
+  if (isSprint) {
+    textColor = 'purple';
+  } else if (inclinePercent > 0) {
+    textColor = 'red';
+  }
+
+  return {
+    minute: formatMinuteRange(minute),
+    raw: treadStr.trim(),  // Preserve original block text
+    speeds,
+    isRecover: false,
+    isSprint,
+    inclinePercent,
+    lowestSpeed,
+    effectiveSpeed,
+    textColor
+  };
 }
 
 // Determine energy level based on position in round

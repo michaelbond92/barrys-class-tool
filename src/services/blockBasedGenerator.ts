@@ -135,10 +135,10 @@ function generateRound(
     const blockLength = pickBlockLength(remaining, category);
 
     // Get random floor block of this length
-    let floorBlock = getRandomFloorBlock(category, blockLength);
+    let floorSelection = getRandomFloorBlock(category, blockLength);
     let attempts = 0;
-    while (floorBlock && usedFloorBlocks.has(floorBlock.join('|')) && attempts < 10) {
-      floorBlock = getRandomFloorBlock(category, blockLength);
+    while (floorSelection && usedFloorBlocks.has(floorSelection.block.join('|')) && attempts < 10) {
+      floorSelection = getRandomFloorBlock(category, blockLength);
       attempts++;
     }
 
@@ -148,31 +148,31 @@ function generateRound(
     // - Last block of round should ideally end with SPRINT (not RECOVER)
     const isLastBlock = (currentMinute + blockLength) >= duration;
 
-    let treadBlock = getRandomTreadBlock(category, blockLength);
+    let treadSelection = getRandomTreadBlock(category, blockLength);
     attempts = 0;
-    while (treadBlock && attempts < 20) {
-      const alreadyUsed = usedTreadBlocks.has(treadBlock.join('|'));
-      const badStartForFirstBlock = isFirstBlock && treadStartsWithRecover(treadBlock);
-      const badEndForLastBlock = isLastBlock && treadEndsWithRecover(treadBlock);
+    while (treadSelection && attempts < 20) {
+      const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
+      const badStartForFirstBlock = isFirstBlock && treadStartsWithRecover(treadSelection.block);
+      const badEndForLastBlock = isLastBlock && treadEndsWithRecover(treadSelection.block);
 
       if (!alreadyUsed && !badStartForFirstBlock && !badEndForLastBlock) {
         break; // Found a good block
       }
 
-      treadBlock = getRandomTreadBlock(category, blockLength);
+      treadSelection = getRandomTreadBlock(category, blockLength);
       attempts++;
     }
 
     // If we couldn't find a perfect match, at least avoid RECOVER at start/end of round
-    if (attempts >= 20 && treadBlock) {
+    if (attempts >= 20 && treadSelection) {
       // Try one more time with relaxed constraints
       for (let i = 0; i < 10; i++) {
         const candidate = getRandomTreadBlock(category, blockLength);
         if (candidate) {
-          const badStart = isFirstBlock && treadStartsWithRecover(candidate);
-          const badEnd = isLastBlock && treadEndsWithRecover(candidate);
+          const badStart = isFirstBlock && treadStartsWithRecover(candidate.block);
+          const badEnd = isLastBlock && treadEndsWithRecover(candidate.block);
           if (!badStart && !badEnd) {
-            treadBlock = candidate;
+            treadSelection = candidate;
             break;
           }
         }
@@ -180,8 +180,13 @@ function generateRound(
     }
 
     // Fallback if no blocks found
-    if (!floorBlock) floorBlock = ['Exercise ' + currentMinute];
-    if (!treadBlock) treadBlock = ['6, 7, 8'];
+    const floorBlock = floorSelection?.block || ['Exercise ' + currentMinute];
+    const floorLibraryIndex = floorSelection?.index || 0;
+    const floorLibraryTotal = floorSelection?.total || 0;
+
+    const treadBlock = treadSelection?.block || ['6, 7, 8'];
+    const treadLibraryIndex = treadSelection?.index || 0;
+    const treadLibraryTotal = treadSelection?.total || 0;
 
     // Mark as used
     usedFloorBlocks.add(floorBlock.join('|'));
@@ -199,7 +204,9 @@ function generateRound(
         exerciseIds: [],
         energyLevel,
         blockIndex: blockNumber,
-        blockType
+        blockType,
+        libraryIndex: floorLibraryIndex,
+        libraryTotal: floorLibraryTotal
       });
 
       const treadEntry = parseTreadFromString(
@@ -208,6 +215,8 @@ function generateRound(
       );
       treadEntry.blockIndex = blockNumber;
       treadEntry.blockType = blockType;
+      treadEntry.libraryIndex = treadLibraryIndex;
+      treadEntry.libraryTotal = treadLibraryTotal;
       treadEntries.push(treadEntry);
 
       currentMinute++;

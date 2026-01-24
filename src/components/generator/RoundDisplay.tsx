@@ -92,17 +92,20 @@ export function RoundDisplay({ round, onRoundChange, isEditing }: RoundDisplayPr
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex items-start gap-2">
-                      {treadEntry && isNewTreadBlock && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
-                          treadEntry.blockType === 'warmup'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          T{treadEntry.blockIndex}
+                      {treadEntry && isNewTreadBlock && treadEntry.libraryIndex && (
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+                            treadEntry.blockType === 'warmup'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}
+                          title={`Tread ${treadEntry.blockType === 'warmup' ? 'Warmup' : 'Workout'} Block #${treadEntry.libraryIndex} of ${treadEntry.libraryTotal}`}
+                        >
+                          T{treadEntry.blockType === 'warmup' ? 'W' : ''}{treadEntry.libraryIndex}
                         </span>
                       )}
-                      {treadEntry && !isNewTreadBlock && (
-                        <span className="w-7"></span>
+                      {treadEntry && (!isNewTreadBlock || !treadEntry.libraryIndex) && (
+                        <span className="w-8"></span>
                       )}
                       {treadEntry && (
                         <TreadRow
@@ -115,17 +118,20 @@ export function RoundDisplay({ round, onRoundChange, isEditing }: RoundDisplayPr
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex items-start gap-2">
-                      {floorEntry && isNewFloorBlock && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
-                          floorEntry.blockType === 'warmup'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-orange-100 text-orange-700'
-                        }`}>
-                          F{floorEntry.blockIndex}
+                      {floorEntry && isNewFloorBlock && floorEntry.libraryIndex && (
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+                            floorEntry.blockType === 'warmup'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}
+                          title={`Floor ${floorEntry.blockType === 'warmup' ? 'Warmup' : 'Workout'} Block #${floorEntry.libraryIndex} of ${floorEntry.libraryTotal}`}
+                        >
+                          F{floorEntry.blockType === 'warmup' ? 'W' : ''}{floorEntry.libraryIndex}
                         </span>
                       )}
-                      {floorEntry && !isNewFloorBlock && (
-                        <span className="w-6"></span>
+                      {floorEntry && (!isNewFloorBlock || !floorEntry.libraryIndex) && (
+                        <span className="w-8"></span>
                       )}
                       {floorEntry && (
                         <FloorRow

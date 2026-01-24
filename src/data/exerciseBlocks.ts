@@ -2357,16 +2357,45 @@ export const TREAD_BLOCKS: BlockLibrary = {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-export function getRandomFloorBlock(category: BlockCategory, length: number): string[] | null {
-  const blocks = FLOOR_BLOCKS[category][length];
-  if (!blocks || blocks.length === 0) return null;
-  return blocks[Math.floor(Math.random() * blocks.length)];
+export interface BlockSelection {
+  block: string[];
+  index: number;  // 1-based index in the library
+  total: number;  // Total blocks available for this category/length
 }
 
-export function getRandomTreadBlock(category: BlockCategory, length: number): string[] | null {
+export function getRandomFloorBlock(category: BlockCategory, length: number): BlockSelection | null {
+  const blocks = FLOOR_BLOCKS[category][length];
+  if (!blocks || blocks.length === 0) return null;
+  const index = Math.floor(Math.random() * blocks.length);
+  return {
+    block: blocks[index],
+    index: index + 1,  // 1-based for display
+    total: blocks.length
+  };
+}
+
+export function getRandomTreadBlock(category: BlockCategory, length: number): BlockSelection | null {
   const blocks = TREAD_BLOCKS[category][length];
   if (!blocks || blocks.length === 0) return null;
-  return blocks[Math.floor(Math.random() * blocks.length)];
+  const index = Math.floor(Math.random() * blocks.length);
+  return {
+    block: blocks[index],
+    index: index + 1,  // 1-based for display
+    total: blocks.length
+  };
+}
+
+// Get a specific block by index (for re-selection)
+export function getFloorBlockByIndex(category: BlockCategory, length: number, index: number): string[] | null {
+  const blocks = FLOOR_BLOCKS[category][length];
+  if (!blocks || index < 1 || index > blocks.length) return null;
+  return blocks[index - 1];  // Convert from 1-based to 0-based
+}
+
+export function getTreadBlockByIndex(category: BlockCategory, length: number, index: number): string[] | null {
+  const blocks = TREAD_BLOCKS[category][length];
+  if (!blocks || index < 1 || index > blocks.length) return null;
+  return blocks[index - 1];  // Convert from 1-based to 0-based
 }
 
 export function getAvailableLengths(category: BlockCategory): number[] {

@@ -47,6 +47,8 @@ export interface TreadEntry {
   textColor: 'black' | 'red' | 'purple';
   blockIndex?: number;        // Which block this entry belongs to (1-based)
   blockType?: 'warmup' | 'workout';  // Type of block
+  libraryIndex?: number;      // Index of this block in the library (e.g., "Tread Warmup #23")
+  libraryTotal?: number;      // Total blocks available in that category/length
 }
 
 // ===== FLOOR TYPES =====
@@ -58,6 +60,8 @@ export interface FloorEntry {
   notes?: string;
   blockIndex?: number;        // Which block this entry belongs to (1-based)
   blockType?: 'warmup' | 'workout';  // Type of block
+  libraryIndex?: number;      // Index of this block in the library (e.g., "Floor Workout #47")
+  libraryTotal?: number;      // Total blocks available in that category/length
 }
 
 // ===== CLASS TYPES =====

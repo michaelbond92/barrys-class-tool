@@ -137,34 +137,72 @@ function createLeftVersion(block: string[]): string[] {
   return block.map(line => line.replace(/\bRight\b/g, 'Left'));
 }
 
-// Pick a block length that fits the remaining time
-function pickBlockLength(remaining: number, category: BlockCategory): number {
+// Check if a floor block starts with SAME
+function floorStartsWithSame(block: string[]): boolean {
+  return block.length > 0 && block[0].toLowerCase().startsWith('same');
+}
+
+// Check if a floor block ends with SAME
+function floorEndsWithSame(block: string[]): boolean {
+  return block.length > 0 && block[block.length - 1].toLowerCase().startsWith('same');
+}
+
+// Plan block lengths that sum exactly to the target duration
+// This ensures no blocks are truncated
+function planBlockLengths(duration: number, category: BlockCategory): number[] {
   const available = getAvailableLengths(category);
+  if (available.length === 0) return [duration]; // Fallback
 
-  // Filter to lengths that fit
-  const fitting = available.filter(len => len <= remaining);
+  // Try to find a combination that sums exactly to duration
+  // Use dynamic programming / greedy approach
+  const result: number[] = [];
+  let remaining = duration;
 
-  if (fitting.length === 0) {
-    // If nothing fits exactly, use smallest available
-    return available[0] || 3;
+  // Shuffle available lengths for variety, but prefer 3-min blocks
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+
+  while (remaining > 0) {
+    // Find lengths that could work
+    const fitting = shuffled.filter(len => len <= remaining);
+
+    if (fitting.length === 0) {
+      // No block fits - this shouldn't happen with good data
+      // but fall back to smallest available
+      result.push(available[0] || 3);
+      break;
+    }
+
+    // Check if any length divides evenly into remaining
+    const exactFit = fitting.find(len => remaining % len === 0);
+
+    // Check if picking a length leaves a valid remainder
+    const validChoices = fitting.filter(len => {
+      const newRemaining = remaining - len;
+      if (newRemaining === 0) return true;
+      // Check if remainder can be filled with available blocks
+      return available.some(a => a <= newRemaining && newRemaining % a === 0) ||
+             available.some(a => newRemaining === a);
+    });
+
+    let chosen: number;
+    if (validChoices.length > 0) {
+      // Prefer 3-min blocks, then 4-min
+      const preferred = validChoices.find(l => l === 3) ||
+                       validChoices.find(l => l === 4) ||
+                       validChoices[Math.floor(Math.random() * validChoices.length)];
+      chosen = preferred;
+    } else if (exactFit) {
+      chosen = exactFit;
+    } else {
+      // Just pick the largest that fits
+      chosen = Math.max(...fitting);
+    }
+
+    result.push(chosen);
+    remaining -= chosen;
   }
 
-  // Prefer 3-min blocks as they're most common, but vary it up
-  const weights = fitting.map(len => {
-    if (len === 3) return 3;  // Prefer 3-min
-    if (len === 4) return 2;  // Then 4-min
-    return 1;  // Then others
-  });
-
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  let random = Math.random() * totalWeight;
-
-  for (let i = 0; i < fitting.length; i++) {
-    random -= weights[i];
-    if (random <= 0) return fitting[i];
-  }
-
-  return fitting[fitting.length - 1];
+  return result;
 }
 
 // Generate a round by picking blocks
@@ -177,30 +215,58 @@ function generateRound(
   const treadEntries: TreadEntry[] = [];
   const floorEntries: FloorEntry[] = [];
   let currentMinute = 0;
-  let blockNumber = 0;  // Track block number (1-based when used)
+  let blockNumber = 0;
 
-  // Determine if first block is warmup
-  let isFirstBlock = true;
+  // Determine category for this round
+  const useWarmup = roundNumber === 1;
+
+  // Plan block lengths upfront to ensure they sum exactly to duration
+  // First block of Round 1 uses warmup category
+  const warmupCategory: BlockCategory = 'warmups';
+  const workoutCategory: BlockCategory = 'workouts';
+
+  // Plan lengths: first block warmup (if Round 1), rest are workouts
+  let plannedLengths: number[];
+  if (useWarmup) {
+    const warmupLengths = planBlockLengths(3, warmupCategory); // ~3 min warmup
+    const workoutLengths = planBlockLengths(duration - 3, workoutCategory);
+    plannedLengths = [...warmupLengths, ...workoutLengths];
+  } else {
+    plannedLengths = planBlockLengths(duration, workoutCategory);
+  }
+
+  // Verify lengths sum to duration, adjust if needed
+  const totalPlanned = plannedLengths.reduce((a, b) => a + b, 0);
+  if (totalPlanned !== duration) {
+    // Fallback: use 3-min blocks
+    plannedLengths = [];
+    let remaining = duration;
+    while (remaining > 0) {
+      const len = Math.min(3, remaining);
+      plannedLengths.push(len);
+      remaining -= len;
+    }
+  }
 
   // Track forced Left block for Right/Left balancing
   let forcedLeftFloorBlock: string[] | null = null;
   let forcedLeftLibraryIndex = 0;
   let forcedLeftLibraryTotal = 0;
 
-  while (currentMinute < duration) {
-    const remaining = duration - currentMinute;
-    blockNumber++;  // Increment for each new block
+  for (let blockIdx = 0; blockIdx < plannedLengths.length; blockIdx++) {
+    const blockLength = plannedLengths[blockIdx];
+    blockNumber++;
 
-    // Determine category (warmup for first block, workout for rest)
-    const category: BlockCategory = (isFirstBlock && roundNumber === 1) ? 'warmups' : 'workouts';
+    const isFirstBlock = blockIdx === 0;
+    const isLastBlock = blockIdx === plannedLengths.length - 1;
+
+    // Determine category
+    const category: BlockCategory = (isFirstBlock && useWarmup) ? warmupCategory : workoutCategory;
     const blockType: 'warmup' | 'workout' = category === 'warmups' ? 'warmup' : 'workout';
 
-    // Pick a block length
-    const blockLength = pickBlockLength(remaining, category);
-
-    // Check if this could be the last block (or second-to-last)
-    const isLastBlock = (currentMinute + blockLength) >= duration;
-    const wouldBeLastIfRightOnly = (currentMinute + blockLength * 2) > duration;
+    // Check if there's room for a Left follow-up block
+    const remainingAfterThis = plannedLengths.slice(blockIdx + 1).reduce((a, b) => a + b, 0);
+    const canFitLeftFollowup = remainingAfterThis >= blockLength;
 
     // Get floor block - either forced Left or random selection
     let floorBlock: string[];
@@ -208,24 +274,22 @@ function generateRound(
     let floorLibraryTotal: number;
 
     if (forcedLeftFloorBlock) {
-      // Use the forced Left block from previous Right block
       floorBlock = forcedLeftFloorBlock;
       floorLibraryIndex = forcedLeftLibraryIndex;
       floorLibraryTotal = forcedLeftLibraryTotal;
-      forcedLeftFloorBlock = null; // Clear the forced block
+      forcedLeftFloorBlock = null;
     } else {
-      // Get random floor block of this length
       let floorSelection = getRandomFloorBlock(category, blockLength);
       let attempts = 0;
 
-      // Keep trying to find a suitable block
-      while (floorSelection && attempts < 20) {
+      while (floorSelection && attempts < 30) {
         const alreadyUsed = usedFloorBlocks.has(floorSelection.block.join('|'));
-        // Don't pick Right-only blocks if this would be the last block or if there's no room for Left follow-up
-        const badRightOnlyAtEnd = isRightOnlyBlock(floorSelection.block) && (isLastBlock || wouldBeLastIfRightOnly);
+        const badRightOnlyAtEnd = isRightOnlyBlock(floorSelection.block) && (isLastBlock || !canFitLeftFollowup);
+        const badSameAtStart = isFirstBlock && floorStartsWithSame(floorSelection.block);
+        const badSameAtEnd = isLastBlock && floorEndsWithSame(floorSelection.block);
 
-        if (!alreadyUsed && !badRightOnlyAtEnd) {
-          break; // Found a good block
+        if (!alreadyUsed && !badRightOnlyAtEnd && !badSameAtStart && !badSameAtEnd) {
+          break;
         }
 
         floorSelection = getRandomFloorBlock(category, blockLength);
@@ -236,51 +300,32 @@ function generateRound(
       floorLibraryIndex = floorSelection?.index || 0;
       floorLibraryTotal = floorSelection?.total || 0;
 
-      // If this is a Right-only block, set up the Left version for the next block
-      if (isRightOnlyBlock(floorBlock) && !isLastBlock) {
+      if (isRightOnlyBlock(floorBlock) && !isLastBlock && canFitLeftFollowup) {
         forcedLeftFloorBlock = createLeftVersion(floorBlock);
-        forcedLeftLibraryIndex = floorLibraryIndex; // Same library index (it's the same block, just Left version)
+        forcedLeftLibraryIndex = floorLibraryIndex;
         forcedLeftLibraryTotal = floorLibraryTotal;
       }
     }
 
-    // Get random tread block of same length
-    // Additional constraints:
-    // - First block of round should NOT start with RECOVER
-    // - Last block of round should ideally end with SPRINT (not RECOVER)
+    // Get tread block
     let treadSelection = getRandomTreadBlock(category, blockLength);
     let treadAttempts = 0;
-    while (treadSelection && treadAttempts < 20) {
-      const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
-      const badStartForFirstBlock = isFirstBlock && treadStartsWithRecover(treadSelection.block);
-      const badEndForLastBlock = isLastBlock && treadEndsWithRecover(treadSelection.block);
 
-      if (!alreadyUsed && !badStartForFirstBlock && !badEndForLastBlock) {
-        break; // Found a good block
+    while (treadSelection && treadAttempts < 30) {
+      const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
+      const badStartRecover = isFirstBlock && treadStartsWithRecover(treadSelection.block);
+      const badEndRecover = isLastBlock && treadEndsWithRecover(treadSelection.block);
+
+      if (!alreadyUsed && !badStartRecover && !badEndRecover) {
+        break;
       }
 
       treadSelection = getRandomTreadBlock(category, blockLength);
       treadAttempts++;
     }
 
-    // If we couldn't find a perfect match, at least avoid RECOVER at start/end of round
-    if (treadAttempts >= 20 && treadSelection) {
-      // Try one more time with relaxed constraints
-      for (let i = 0; i < 10; i++) {
-        const candidate = getRandomTreadBlock(category, blockLength);
-        if (candidate) {
-          const badStart = isFirstBlock && treadStartsWithRecover(candidate.block);
-          const badEnd = isLastBlock && treadEndsWithRecover(candidate.block);
-          if (!badStart && !badEnd) {
-            treadSelection = candidate;
-            break;
-          }
-        }
-      }
-    }
-
     // Tread block fallback
-    const treadBlock = treadSelection?.block || ['6, 7, 8'];
+    const treadBlock = treadSelection?.block || Array(blockLength).fill('6, 7, 8');
     const treadLibraryIndex = treadSelection?.index || 0;
     const treadLibraryTotal = treadSelection?.total || 0;
 
@@ -288,10 +333,8 @@ function generateRound(
     usedFloorBlocks.add(floorBlock.join('|'));
     usedTreadBlocks.add(treadBlock.join('|'));
 
-    // Add block to round (truncate if needed to fit duration)
-    const minutesToAdd = Math.min(floorBlock.length, remaining);
-
-    for (let i = 0; i < minutesToAdd; i++) {
+    // Add FULL block to round - no truncation allowed
+    for (let i = 0; i < blockLength; i++) {
       const energyLevel = getEnergyLevel(currentMinute, duration, roundNumber);
 
       floorEntries.push({
@@ -317,8 +360,6 @@ function generateRound(
 
       currentMinute++;
     }
-
-    isFirstBlock = false;
   }
 
   return { tread: treadEntries, floor: floorEntries };

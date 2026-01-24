@@ -72,29 +72,69 @@ export function RoundDisplay({ round, onRoundChange, isEditing }: RoundDisplayPr
             {Array.from({ length: maxRows }).map((_, index) => {
               const treadEntry = round.tread[index];
               const floorEntry = round.floor[index];
+              const prevTreadEntry = index > 0 ? round.tread[index - 1] : null;
+              const prevFloorEntry = index > 0 ? round.floor[index - 1] : null;
+
+              // Check if this is the start of a new block
+              const isNewTreadBlock = treadEntry?.blockIndex !== prevTreadEntry?.blockIndex;
+              const isNewFloorBlock = floorEntry?.blockIndex !== prevFloorEntry?.blockIndex;
+              const isNewBlock = isNewTreadBlock || isNewFloorBlock;
 
               return (
-                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr
+                  key={index}
+                  className={`border-b border-gray-100 hover:bg-gray-50 ${
+                    isNewBlock ? 'border-t-2 border-t-gray-300' : ''
+                  }`}
+                >
                   <td className="px-4 py-2 font-mono text-sm text-gray-500">
                     {treadEntry?.minute || floorEntry?.minute || `${index}-${index + 1}`}
                   </td>
                   <td className="px-4 py-2">
-                    {treadEntry && (
-                      <TreadRow
-                        entry={treadEntry}
-                        onChange={(e) => handleTreadChange(index, e)}
-                        isEditing={isEditing}
-                      />
-                    )}
+                    <div className="flex items-start gap-2">
+                      {treadEntry && isNewTreadBlock && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+                          treadEntry.blockType === 'warmup'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          T{treadEntry.blockIndex}
+                        </span>
+                      )}
+                      {treadEntry && !isNewTreadBlock && (
+                        <span className="w-7"></span>
+                      )}
+                      {treadEntry && (
+                        <TreadRow
+                          entry={treadEntry}
+                          onChange={(e) => handleTreadChange(index, e)}
+                          isEditing={isEditing}
+                        />
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2">
-                    {floorEntry && (
-                      <FloorRow
-                        entry={floorEntry}
-                        onChange={(e) => handleFloorChange(index, e)}
-                        isEditing={isEditing}
-                      />
-                    )}
+                    <div className="flex items-start gap-2">
+                      {floorEntry && isNewFloorBlock && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+                          floorEntry.blockType === 'warmup'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          F{floorEntry.blockIndex}
+                        </span>
+                      )}
+                      {floorEntry && !isNewFloorBlock && (
+                        <span className="w-6"></span>
+                      )}
+                      {floorEntry && (
+                        <FloorRow
+                          entry={floorEntry}
+                          onChange={(e) => handleFloorChange(index, e)}
+                          isEditing={isEditing}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

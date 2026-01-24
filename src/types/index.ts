@@ -45,6 +45,8 @@ export interface TreadEntry {
   lowestSpeed: number;
   effectiveSpeed: number;
   textColor: 'black' | 'red' | 'purple';
+  blockIndex?: number;        // Which block this entry belongs to (1-based)
+  blockType?: 'warmup' | 'workout';  // Type of block
 }
 
 // ===== FLOOR TYPES =====
@@ -54,6 +56,8 @@ export interface FloorEntry {
   exerciseIds: string[];
   energyLevel: EnergyLevel;
   notes?: string;
+  blockIndex?: number;        // Which block this entry belongs to (1-based)
+  blockType?: 'warmup' | 'workout';  // Type of block
 }
 
 // ===== CLASS TYPES =====

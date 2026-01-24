@@ -118,15 +118,18 @@ function generateRound(
   const treadEntries: TreadEntry[] = [];
   const floorEntries: FloorEntry[] = [];
   let currentMinute = 0;
+  let blockNumber = 0;  // Track block number (1-based when used)
 
   // Determine if first block is warmup
   let isFirstBlock = true;
 
   while (currentMinute < duration) {
     const remaining = duration - currentMinute;
+    blockNumber++;  // Increment for each new block
 
     // Determine category (warmup for first block, workout for rest)
     const category: BlockCategory = (isFirstBlock && roundNumber === 1) ? 'warmups' : 'workouts';
+    const blockType: 'warmup' | 'workout' = category === 'warmups' ? 'warmup' : 'workout';
 
     // Pick a block length
     const blockLength = pickBlockLength(remaining, category);
@@ -194,13 +197,18 @@ function generateRound(
         minute: formatMinuteRange(currentMinute),
         exercises: floorBlock[i] || floorBlock[floorBlock.length - 1],
         exerciseIds: [],
-        energyLevel
+        energyLevel,
+        blockIndex: blockNumber,
+        blockType
       });
 
-      treadEntries.push(parseTreadFromString(
+      const treadEntry = parseTreadFromString(
         treadBlock[i] || treadBlock[treadBlock.length - 1],
         currentMinute
-      ));
+      );
+      treadEntry.blockIndex = blockNumber;
+      treadEntry.blockType = blockType;
+      treadEntries.push(treadEntry);
 
       currentMinute++;
     }

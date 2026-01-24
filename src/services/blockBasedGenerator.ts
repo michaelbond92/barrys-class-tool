@@ -55,12 +55,13 @@ function parseTreadFromString(treadStr: string, minute: number): TreadEntry {
 }
 
 // Determine energy level based on position in round
-function getEnergyLevel(minuteInRound: number, roundDuration: number): EnergyLevel {
+function getEnergyLevel(minuteInRound: number, roundDuration: number, roundNumber: number): EnergyLevel {
   const progress = minuteInRound / roundDuration;
 
-  if (progress < 0.25) return 'L1';  // First quarter - warmup
+  // Only Round 1 has warmup (L1) phase - Round 2 goes straight to building
+  if (roundNumber === 1 && progress < 0.25) return 'L1';  // First quarter of Round 1 - warmup
   if (progress > 0.85) return 'L3';  // Last bit - finisher
-  return 'L2';  // Middle - building
+  return 'L2';  // Middle - building (and start of Round 2)
 }
 
 // Check if a tread block starts with RECOVER
@@ -196,7 +197,7 @@ function generateRound(
     const minutesToAdd = Math.min(floorBlock.length, remaining);
 
     for (let i = 0; i < minutesToAdd; i++) {
-      const energyLevel = getEnergyLevel(currentMinute, duration);
+      const energyLevel = getEnergyLevel(currentMinute, duration, roundNumber);
 
       floorEntries.push({
         minute: formatMinuteRange(currentMinute),

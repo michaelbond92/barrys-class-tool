@@ -3,6 +3,7 @@ import { Header } from './Header';
 import { TabNavigation, TabId } from './TabNavigation';
 import { ClassGenerator } from '../generator/ClassGenerator';
 import { TreadCalculator } from '../calculator/TreadCalculator';
+import { BlockLibrary } from '../library/BlockLibrary';
 
 export function AppLayout() {
   const [activeTab, setActiveTab] = useState<TabId>('generator');
@@ -13,6 +14,8 @@ export function AppLayout() {
         return <ClassGenerator />;
       case 'calculator':
         return <TreadCalculator />;
+      case 'blocks':
+        return <BlockLibrary />;
       default:
         return <ClassGenerator />;
     }

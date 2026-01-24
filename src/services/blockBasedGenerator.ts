@@ -79,6 +79,30 @@ function treadEndsWithSprint(block: string[]): boolean {
   return block.length > 0 && block[block.length - 1].toLowerCase().includes('sprint');
 }
 
+// ============================================
+// RIGHT/LEFT BALANCING FOR FLOOR BLOCKS
+// ============================================
+
+// Check if a floor block contains "Right" exercises
+function hasRightExercises(block: string[]): boolean {
+  return block.some(line => /\bRight\b/i.test(line));
+}
+
+// Check if a floor block contains "Left" exercises
+function hasLeftExercises(block: string[]): boolean {
+  return block.some(line => /\bLeft\b/i.test(line));
+}
+
+// Check if a floor block is "Right-only" (has Right but not matching Left)
+function isRightOnlyBlock(block: string[]): boolean {
+  return hasRightExercises(block) && !hasLeftExercises(block);
+}
+
+// Create the Left version of a block by replacing "Right" with "Left"
+function createLeftVersion(block: string[]): string[] {
+  return block.map(line => line.replace(/\bRight\b/g, 'Left'));
+}
+
 // Pick a block length that fits the remaining time
 function pickBlockLength(remaining: number, category: BlockCategory): number {
   const available = getAvailableLengths(category);
@@ -124,6 +148,11 @@ function generateRound(
   // Determine if first block is warmup
   let isFirstBlock = true;
 
+  // Track forced Left block for Right/Left balancing
+  let forcedLeftFloorBlock: string[] | null = null;
+  let forcedLeftLibraryIndex = 0;
+  let forcedLeftLibraryTotal = 0;
+
   while (currentMinute < duration) {
     const remaining = duration - currentMinute;
     blockNumber++;  // Increment for each new block
@@ -135,23 +164,59 @@ function generateRound(
     // Pick a block length
     const blockLength = pickBlockLength(remaining, category);
 
-    // Get random floor block of this length
-    let floorSelection = getRandomFloorBlock(category, blockLength);
-    let attempts = 0;
-    while (floorSelection && usedFloorBlocks.has(floorSelection.block.join('|')) && attempts < 10) {
-      floorSelection = getRandomFloorBlock(category, blockLength);
-      attempts++;
+    // Check if this could be the last block (or second-to-last)
+    const isLastBlock = (currentMinute + blockLength) >= duration;
+    const wouldBeLastIfRightOnly = (currentMinute + blockLength * 2) > duration;
+
+    // Get floor block - either forced Left or random selection
+    let floorBlock: string[];
+    let floorLibraryIndex: number;
+    let floorLibraryTotal: number;
+
+    if (forcedLeftFloorBlock) {
+      // Use the forced Left block from previous Right block
+      floorBlock = forcedLeftFloorBlock;
+      floorLibraryIndex = forcedLeftLibraryIndex;
+      floorLibraryTotal = forcedLeftLibraryTotal;
+      forcedLeftFloorBlock = null; // Clear the forced block
+    } else {
+      // Get random floor block of this length
+      let floorSelection = getRandomFloorBlock(category, blockLength);
+      let attempts = 0;
+
+      // Keep trying to find a suitable block
+      while (floorSelection && attempts < 20) {
+        const alreadyUsed = usedFloorBlocks.has(floorSelection.block.join('|'));
+        // Don't pick Right-only blocks if this would be the last block or if there's no room for Left follow-up
+        const badRightOnlyAtEnd = isRightOnlyBlock(floorSelection.block) && (isLastBlock || wouldBeLastIfRightOnly);
+
+        if (!alreadyUsed && !badRightOnlyAtEnd) {
+          break; // Found a good block
+        }
+
+        floorSelection = getRandomFloorBlock(category, blockLength);
+        attempts++;
+      }
+
+      floorBlock = floorSelection?.block || ['Exercise ' + currentMinute];
+      floorLibraryIndex = floorSelection?.index || 0;
+      floorLibraryTotal = floorSelection?.total || 0;
+
+      // If this is a Right-only block, set up the Left version for the next block
+      if (isRightOnlyBlock(floorBlock) && !isLastBlock) {
+        forcedLeftFloorBlock = createLeftVersion(floorBlock);
+        forcedLeftLibraryIndex = floorLibraryIndex; // Same library index (it's the same block, just Left version)
+        forcedLeftLibraryTotal = floorLibraryTotal;
+      }
     }
 
     // Get random tread block of same length
     // Additional constraints:
     // - First block of round should NOT start with RECOVER
     // - Last block of round should ideally end with SPRINT (not RECOVER)
-    const isLastBlock = (currentMinute + blockLength) >= duration;
-
     let treadSelection = getRandomTreadBlock(category, blockLength);
-    attempts = 0;
-    while (treadSelection && attempts < 20) {
+    let treadAttempts = 0;
+    while (treadSelection && treadAttempts < 20) {
       const alreadyUsed = usedTreadBlocks.has(treadSelection.block.join('|'));
       const badStartForFirstBlock = isFirstBlock && treadStartsWithRecover(treadSelection.block);
       const badEndForLastBlock = isLastBlock && treadEndsWithRecover(treadSelection.block);
@@ -161,11 +226,11 @@ function generateRound(
       }
 
       treadSelection = getRandomTreadBlock(category, blockLength);
-      attempts++;
+      treadAttempts++;
     }
 
     // If we couldn't find a perfect match, at least avoid RECOVER at start/end of round
-    if (attempts >= 20 && treadSelection) {
+    if (treadAttempts >= 20 && treadSelection) {
       // Try one more time with relaxed constraints
       for (let i = 0; i < 10; i++) {
         const candidate = getRandomTreadBlock(category, blockLength);
@@ -180,11 +245,7 @@ function generateRound(
       }
     }
 
-    // Fallback if no blocks found
-    const floorBlock = floorSelection?.block || ['Exercise ' + currentMinute];
-    const floorLibraryIndex = floorSelection?.index || 0;
-    const floorLibraryTotal = floorSelection?.total || 0;
-
+    // Tread block fallback
     const treadBlock = treadSelection?.block || ['6, 7, 8'];
     const treadLibraryIndex = treadSelection?.index || 0;
     const treadLibraryTotal = treadSelection?.total || 0;

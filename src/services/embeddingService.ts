@@ -21,13 +21,21 @@ const OPENAI_API_URL = 'https://api.openai.com/v1/embeddings';
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 768;
 
-// Get API key from environment
-function getApiKey(): string {
-  const key = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!key) {
-    throw new Error('OpenAI API key not configured. Set VITE_OPENAI_API_KEY in .env');
+// Get API key from environment (returns null if not configured)
+// NOTE: In production, embeddings are disabled to avoid bundling API keys
+// A proper backend should be used for production embedding generation
+function getApiKey(): string | null {
+  // Disable in production builds to avoid bundling secrets
+  if (import.meta.env.PROD) {
+    return null;
   }
-  return key;
+  const key = import.meta.env.VITE_OPENAI_API_KEY;
+  return key && key.startsWith('sk-') ? key : null;
+}
+
+// Check if embeddings are available
+export function isEmbeddingServiceAvailable(): boolean {
+  return getApiKey() !== null;
 }
 
 // ============================================================================
@@ -61,6 +69,10 @@ export interface EmbeddingResult {
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const apiKey = getApiKey();
+  if (!apiKey) {
+    console.warn('Embedding service not available - API key not configured');
+    return [];
+  }
 
   const response = await fetch(OPENAI_API_URL, {
     method: 'POST',
@@ -92,6 +104,10 @@ export async function batchGenerateEmbeddings(
   onProgress?: (completed: number, total: number) => void
 ): Promise<EmbeddingResult[]> {
   const apiKey = getApiKey();
+  if (!apiKey) {
+    console.warn('Embedding service not available - API key not configured');
+    return [];
+  }
   const results: EmbeddingResult[] = [];
 
   // OpenAI allows up to 2048 items per batch, but we'll use smaller batches

@@ -11,8 +11,11 @@ import { buildExerciseIndex, saveExerciseIndex } from '../../services/exerciseIn
 import { generateAllBlockEmbeddings, generateAllRoundEmbeddings } from '../../services/firebase/vectorSearchService';
 import { isFirebaseConfigured, initializeFirebase, getAuthInstance } from '../../services/firebase/firebaseConfig';
 
-// Check if OpenAI API key is configured
+// Check if OpenAI API key is configured (disabled in production)
 function isOpenAIConfigured(): boolean {
+  if (import.meta.env.PROD) {
+    return false; // Disabled in production to avoid bundling secrets
+  }
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   return Boolean(apiKey && apiKey.length > 0 && apiKey !== 'undefined');
 }

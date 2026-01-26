@@ -267,7 +267,80 @@ Added 6 timing rules to `generationRules.ts` with data backing.
 - **Lower Body**: Hinge → Lunge → Core break (40%) → Lunge/Squat
 - **Finisher**: Build-up → Single power move (same movement family)
 - **Core**: NOT a block type - sprinkle as grip break (30-40% chance)
+- **Equipment**: All exercises in block must use same weight type (heavy OR medium)
 
 ---
 
-*Last Updated: 2025-01-25*
+## Weight Path Model (NEW - for compound flow)
+
+Exercises have a weight position at START, MID, and END of the movement.
+Compounds work when one exercise's MID or END matches the next exercise's START.
+
+### Weight Positions
+| Position | Description | Example |
+|----------|-------------|---------|
+| `floor` | On ground | Deadlift start |
+| `sides` | Hanging at sides | Standing, arms down |
+| `chest` | At chest level | Goblet squat |
+| `shoulders` | Rack position | Clean catch, front squat |
+| `overhead` | Above head | Press top |
+| `extended` | Arms extended forward | Chest press top |
+| `behind_head` | Behind head | Skull crusher bottom |
+
+### Example Weight Paths
+| Exercise | Start | Mid | End |
+|----------|-------|-----|-----|
+| Deadlift | floor | sides | sides |
+| Clean | floor | sides | shoulders |
+| Shoulder Press | shoulders | overhead | shoulders |
+| Bicep Curl | sides | shoulders | sides |
+| Chest Press | chest | extended | chest |
+| Skull Crusher | extended | behind_head | extended |
+
+### Compound Flow Rule
+Exercise A → B works if:
+1. `A.weightPath.end === B.weightPath.start` (sequential)
+2. OR `A.weightPath.mid === B.weightPath.start` (compound mid-movement)
+3. AND equipment types match
+4. AND body positions compatible
+5. AND movement planes compatible (sagittal with sagittal, etc.)
+
+### Movement Planes
+| Plane | Direction | Examples |
+|-------|-----------|----------|
+| `sagittal` | Forward/backward | Squats, lunges, presses |
+| `frontal` | Side-to-side | Lateral raises, lateral lunges |
+| `transverse` | Rotational | Russian twist, woodchop |
+
+Lateral movements don't mix with sagittal (user feedback: lateral lunge doesn't fit with deadlifts/lunges).
+
+---
+
+## Body Positions (Expanded)
+
+| Position | Description | Example Exercises |
+|----------|-------------|-------------------|
+| `floor_standing` | Standing on floor | Squats, lunges, rows |
+| `floor_laying` | Lying/plank on floor | Pushups, planks |
+| `floor_kneeling` | Kneeling on floor | Kneeling press |
+| `bench_laying` | Lying on bench | Chest press, skull crusher |
+| `bench_sitting` | Sitting on bench | Russian twist, seated press |
+| `bench_kneeling` | Kneeling on bench | Banded kickbacks, banded tricep ext |
+| `bench_facing` | Standing at bench, facing it | Lateral movements |
+| `bench_front` | At front of bench, facing away | Step-ups |
+
+---
+
+## Next: Exercise Metadata Validation
+
+User will validate:
+1. Exercise list completeness
+2. Equipment options per exercise (2H, 1H, 2M, etc.)
+3. Weight paths (start/mid/end positions)
+4. Movement planes
+
+Then we can add this metadata and use it for smarter block generation.
+
+---
+
+*Last Updated: 2025-01-26*

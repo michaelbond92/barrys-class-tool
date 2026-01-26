@@ -10,6 +10,8 @@ import {
 import {
   ALL_EXERCISES,
   ExerciseDefinition,
+  getSubstitutes,
+  hasCompatibleEquipment,
 } from '../../data/exerciseReference';
 
 // ============================================================================
@@ -48,6 +50,7 @@ interface GameStats {
 // ============================================================================
 
 const BLOCK_FEEDBACK_KEY = 'barrys_block_feedback';
+const GENERATED_COMBOS_KEY = 'barrys_generated_combos';
 
 function saveFeedback(feedback: BlockFeedback): void {
   const existing = loadAllFeedback();
@@ -62,6 +65,63 @@ function loadAllFeedback(): BlockFeedback[] {
   } catch {
     return [];
   }
+}
+
+// ============================================================================
+// Novelty Tracking
+// Track generated combinations to favor fresh ones
+// ============================================================================
+
+interface GeneratedCombo {
+  exerciseIds: string[];
+  category: BlockCategory;
+  rating?: 'good' | 'bad' | 'fixed';
+  count: number;
+}
+
+function getComboKey(exerciseIds: string[]): string {
+  return [...exerciseIds].sort().join('|');
+}
+
+function loadGeneratedCombos(): Map<string, GeneratedCombo> {
+  try {
+    const stored = localStorage.getItem(GENERATED_COMBOS_KEY);
+    if (!stored) return new Map();
+    const arr: GeneratedCombo[] = JSON.parse(stored);
+    const map = new Map<string, GeneratedCombo>();
+    for (const combo of arr) {
+      map.set(getComboKey(combo.exerciseIds), combo);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function saveGeneratedCombo(exerciseIds: string[], category: BlockCategory, rating?: 'good' | 'bad' | 'fixed'): void {
+  const combos = loadGeneratedCombos();
+  const key = getComboKey(exerciseIds);
+  const existing = combos.get(key);
+
+  if (existing) {
+    existing.count++;
+    if (rating) existing.rating = rating;
+  } else {
+    combos.set(key, { exerciseIds, category, rating, count: 1 });
+  }
+
+  localStorage.setItem(GENERATED_COMBOS_KEY, JSON.stringify([...combos.values()]));
+}
+
+function getComboNoveltyScore(exerciseIds: string[]): number {
+  const combos = loadGeneratedCombos();
+  const key = getComboKey(exerciseIds);
+  const existing = combos.get(key);
+
+  if (!existing) return 100; // Never seen = max novelty
+  if (existing.rating === 'bad') return 0; // Avoid bad combos
+  if (existing.rating === 'good') return 50; // Good combos can repeat sometimes
+  return Math.max(0, 100 - existing.count * 20); // Decrease novelty with each generation
 }
 
 // ============================================================================
@@ -128,6 +188,33 @@ function shuffleArray<T>(array: T[]): T[] {
 
 function pickRandom<T>(array: T[], count: number): T[] {
   return shuffleArray(array).slice(0, count);
+}
+
+// Pick exercises with novelty bias - prefer combinations not seen before
+function pickWithNoveltyBias(
+  exercises: ExerciseDefinition[],
+  count: number,
+  existingIds: string[] = []
+): ExerciseDefinition[] {
+  if (exercises.length <= count) return exercises;
+
+  const candidates: Array<{ exercise: ExerciseDefinition; score: number }> = [];
+
+  for (const ex of exercises) {
+    if (existingIds.includes(ex.id)) continue;
+
+    // Calculate novelty score for this exercise combined with existing
+    const comboIds = [...existingIds, ex.id];
+    const novelty = getComboNoveltyScore(comboIds);
+
+    // Add some randomness but bias toward novel
+    const score = novelty + Math.random() * 30;
+    candidates.push({ exercise: ex, score });
+  }
+
+  // Sort by score descending and take top N
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, count).map(c => c.exercise);
 }
 
 // ============================================================================
@@ -635,16 +722,21 @@ export function BlockBuilderGame() {
     const block = blocks.find(b => b.id === blockId);
     if (!block) return;
 
+    const exerciseIds = block.exercises.map(e => e.id);
+
     const feedback: BlockFeedback = {
       blockId,
       category: block.category,
-      exercises: block.exercises.map(e => e.id),
+      exercises: exerciseIds,
       rating,
       textFeedback,
       timestamp: new Date().toISOString(),
     };
 
     saveFeedback(feedback);
+
+    // Track this combo for novelty scoring
+    saveGeneratedCombo(exerciseIds, block.category, rating);
 
     setStats(prev => ({
       ...prev,
@@ -661,17 +753,24 @@ export function BlockBuilderGame() {
     const block = blocks.find(b => b.id === blockId);
     if (!block) return;
 
+    const originalIds = block.exercises.map(e => e.id);
+    const fixedIds = newOrder.map(e => e.id);
+
     const feedback: BlockFeedback = {
       blockId,
       category: block.category,
-      exercises: block.exercises.map(e => e.id),
+      exercises: originalIds,
       rating: 'fixed',
       textFeedback,
-      fixedOrder: newOrder.map(e => e.id),
+      fixedOrder: fixedIds,
       timestamp: new Date().toISOString(),
     };
 
     saveFeedback(feedback);
+
+    // Track original as "needs fixing" and fixed as "good"
+    saveGeneratedCombo(originalIds, block.category, 'fixed');
+    saveGeneratedCombo(fixedIds, block.category, 'good');
 
     setStats(prev => ({
       ...prev,

@@ -900,6 +900,230 @@ export const ALL_EXERCISES: ExerciseDefinition[] = [
 ];
 
 // ============================================================================
+// EXERCISE SUBSTITUTION CLASSES
+// Exercises within the same class can be swapped for variety while
+// maintaining block structure and flow
+// ============================================================================
+
+export interface SubstitutionClass {
+  id: string;
+  name: string;
+  description: string;
+  exerciseIds: string[];
+  constraints?: {
+    samePosition?: boolean;     // Must match position
+    sameEquipment?: boolean;    // Must match equipment type
+  };
+}
+
+export const SUBSTITUTION_CLASSES: SubstitutionClass[] = [
+  // Hinge variations (floor standing, posterior chain)
+  {
+    id: 'hinge_bilateral',
+    name: 'Bilateral Hinges',
+    description: 'Two-leg hip hinge movements',
+    exerciseIds: ['deadlift', 'rdl', 'sdl', 'good_morning'],
+    constraints: { samePosition: true },
+  },
+  {
+    id: 'hinge_power',
+    name: 'Power Hinges',
+    description: 'Explosive hip-driven movements',
+    exerciseIds: ['snatch', 'clean', 'db_swing'],
+    constraints: { samePosition: true },
+  },
+
+  // Squat variations
+  {
+    id: 'squat_bilateral',
+    name: 'Bilateral Squats',
+    description: 'Two-leg squat variations',
+    exerciseIds: ['squat', 'goblet_squat', 'sumo_squat'],
+    constraints: { samePosition: true },
+  },
+
+  // Lunge variations
+  {
+    id: 'lunge_forward',
+    name: 'Forward Lunges',
+    description: 'Forward-stepping lunge variations',
+    exerciseIds: ['lunge', 'curtsy_lunge'],
+    constraints: { samePosition: true },
+  },
+  {
+    id: 'lunge_reverse',
+    name: 'Reverse Lunges',
+    description: 'Backward-stepping lunge variations',
+    exerciseIds: ['reverse_lunge'],
+    constraints: { samePosition: true },
+  },
+
+  // Chest press variations (bench)
+  {
+    id: 'chest_press',
+    name: 'Chest Press',
+    description: 'Horizontal pressing on bench',
+    exerciseIds: ['chest_press', 'incline_press', 'chest_fly'],
+    constraints: { samePosition: true },
+  },
+
+  // Row variations
+  {
+    id: 'row_standing',
+    name: 'Standing Rows',
+    description: 'Standing pulling movements',
+    exerciseIds: ['row', 'upright_row', 'reverse_fly'],
+    constraints: { samePosition: true },
+  },
+  {
+    id: 'row_floor',
+    name: 'Floor Rows',
+    description: 'Floor-based pulling',
+    exerciseIds: ['renegade_row'],
+    constraints: { samePosition: true },
+  },
+
+  // Shoulder press variations
+  {
+    id: 'shoulder_press',
+    name: 'Shoulder Press',
+    description: 'Vertical pressing movements',
+    exerciseIds: ['shoulder_press'],
+    constraints: { samePosition: true },
+  },
+
+  // Bicep variations
+  {
+    id: 'bicep_curl',
+    name: 'Bicep Curls',
+    description: 'Elbow flexion movements',
+    exerciseIds: ['bicep_curl', 'hammer_curl'],
+    constraints: { samePosition: true },
+  },
+
+  // Tricep variations
+  {
+    id: 'tricep_extension',
+    name: 'Tricep Extensions',
+    description: 'Elbow extension movements',
+    exerciseIds: ['tricep_extension', 'tricep_kickback', 'skull_crusher'],
+    constraints: { samePosition: false }, // These are different positions
+  },
+
+  // Core - plank based
+  {
+    id: 'core_plank',
+    name: 'Plank Core',
+    description: 'Plank-position core work',
+    exerciseIds: ['plank', 'mountain_climber', 'commando'],
+    constraints: { samePosition: true },
+  },
+
+  // Core - supine
+  {
+    id: 'core_supine',
+    name: 'Supine Core',
+    description: 'On-back core work',
+    exerciseIds: ['situp', 'crunch', 'toe_touch', 'dead_bug', 'jacknife'],
+    constraints: { samePosition: true },
+  },
+
+  // Core - rotation
+  {
+    id: 'core_rotation',
+    name: 'Rotational Core',
+    description: 'Twisting core movements',
+    exerciseIds: ['russian_twist'],
+    constraints: { samePosition: true },
+  },
+
+  // Power finishers
+  {
+    id: 'power_finisher',
+    name: 'Power Finishers',
+    description: 'High-intensity finisher movements',
+    exerciseIds: ['burpee', 'thruster', 'squat_to_hi_pull', 'clean_to_press'],
+    constraints: { samePosition: false },
+  },
+
+  // Warmup stretches
+  {
+    id: 'warmup_stretch',
+    name: 'Warmup Stretches',
+    description: 'Dynamic stretching movements',
+    exerciseIds: ['wgs', 'gms', 'good_morning_to_squat', 'cat_cow'],
+    constraints: { samePosition: false },
+  },
+];
+
+// Get substitution class for an exercise
+export function getSubstitutionClass(exerciseId: string): SubstitutionClass | undefined {
+  return SUBSTITUTION_CLASSES.find(sc => sc.exerciseIds.includes(exerciseId));
+}
+
+// Get all exercises that can substitute for a given exercise
+export function getSubstitutes(exerciseId: string): ExerciseDefinition[] {
+  const subClass = getSubstitutionClass(exerciseId);
+  if (!subClass) return [];
+
+  return subClass.exerciseIds
+    .filter(id => id !== exerciseId)
+    .map(id => findExerciseById(id))
+    .filter((ex): ex is ExerciseDefinition => ex !== undefined);
+}
+
+// ============================================================================
+// EQUIPMENT REQUIREMENTS
+// ============================================================================
+
+export type EquipmentType = 'heavy' | 'medium' | 'light' | 'none';
+
+export interface EquipmentRequirement {
+  type: EquipmentType;
+  count: 1 | 2;
+}
+
+// Parse equipment strings into structured requirements
+export function parseEquipment(equipmentStrings: string[]): EquipmentRequirement[] {
+  const requirements: EquipmentRequirement[] = [];
+
+  for (const eq of equipmentStrings) {
+    const lower = eq.toLowerCase();
+    if (lower.includes('heavy')) {
+      const count = lower.includes('2') ? 2 : 1;
+      requirements.push({ type: 'heavy', count: count as 1 | 2 });
+    } else if (lower.includes('medium')) {
+      const count = lower.includes('2') ? 2 : 1;
+      requirements.push({ type: 'medium', count: count as 1 | 2 });
+    } else if (lower.includes('light')) {
+      const count = lower.includes('2') ? 2 : 1;
+      requirements.push({ type: 'light', count: count as 1 | 2 });
+    }
+  }
+
+  return requirements;
+}
+
+// Check if two exercises have compatible equipment (can be in same block)
+export function hasCompatibleEquipment(ex1: ExerciseDefinition, ex2: ExerciseDefinition): boolean {
+  const eq1 = parseEquipment(ex1.equipment);
+  const eq2 = parseEquipment(ex2.equipment);
+
+  // No equipment = always compatible
+  if (eq1.length === 0 || eq2.length === 0) return true;
+
+  // Check if they share at least one equipment type
+  for (const e1 of eq1) {
+    for (const e2 of eq2) {
+      if (e1.type === e2.type) return true;
+    }
+  }
+
+  // Different equipment types - could still work but less ideal
+  return false;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 

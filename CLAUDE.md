@@ -37,12 +37,20 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 | File | Purpose |
 |------|---------|
 | `src/data/generationRules.ts` | 24 confirmed generation rules with helpers |
-| `src/data/exerciseReference.ts` | 40+ curated exercise definitions with proper tags |
+| `src/data/exerciseReference.ts` | 40+ exercises, substitution classes, equipment helpers |
 | `src/data/types.ts` | Shared TypeScript types for positions, patterns, muscles |
 | `src/data/exerciseBlocks.ts` | Block definitions (being replaced by imports) |
 | `src/services/ruleExtractionService.ts` | Analyzes imported data for patterns |
 | `src/components/game/VibeCheckGame.tsx` | RLHF feedback collection for class generation |
 | `src/components/game/TagValidationGame.tsx` | Manual validation of exercise tagging |
+| `src/components/game/BlockBuilderGame.tsx` | RLHF for block generation with novelty tracking |
+
+### RLHF Storage Keys
+| Key | Description |
+|-----|-------------|
+| `barrys_tag_feedback` | Exercise tag corrections from Tag Check game |
+| `barrys_block_feedback` | Block ratings (good/bad/fixed) with text feedback |
+| `barrys_generated_combos` | Novelty tracking - avoids repeating bad combos |
 
 ---
 
@@ -140,22 +148,60 @@ The current exercise tagging in `barrys_exercise_index` has errors:
 - [x] Data-backed timing analysis
 - [x] Vibe Check Game for RLHF feedback
 - [x] Exercise Reference file with 40+ curated exercises
-- [x] Tag Validation Game for manual review
+- [x] Tag Validation Game for manual review (multi-select, all-fields mode)
 - [x] CLAUDE.md memory file for session continuity
+- [x] Block Builder Game for RLHF on block generation
+- [x] Exercise substitution classes for controlled variety
+- [x] Equipment compatibility checking
+- [x] Novelty tracking to avoid repeating combos
+- [x] Deployed to GitHub Pages
 
 ### In Progress
 - [ ] Validate remaining exercises via Tag Check game
+- [ ] Train Block Builder with more feedback
 - [ ] Fix tagging errors in indexed data based on feedback
 
 ### Planned
-- [ ] Embeddings integration
-- [ ] Remove hardcoded blocks
+- [ ] Round Builder Game (rate sequences of blocks)
+- [ ] Embeddings integration (needs backend for production)
+- [ ] Mine real blocks for proven exercise sequences
 - [ ] NL generation feature
 - [ ] Library redesign
 
 ---
 
 ## Session Notes
+
+### 2025-01-25: Block Builder Game & RLHF Training
+
+Built Block Builder Game for training block generation:
+- Rate blocks: good/bad/fix with text feedback
+- Drag-to-reorder for "fix" mode
+- Batch display (4 blocks at once)
+- Novelty tracking to avoid repeating bad combos
+
+**Key learnings from user feedback:**
+
+| Issue | Learning |
+|-------|----------|
+| Core blocks | Don't exist as standalone - core is sprinkled as grip break (30%) |
+| Position oscillations | Stay in one position zone per block (bench zone OR standing zone) |
+| Power overload | Max 1 power move per finisher, not 2-3 |
+| Warmup flow | Standing stretch → transition (inchworm) → plank/floor work |
+| Lower body | Hinge first → lunge → core break → lunge/squat |
+| Finisher continuity | Movement patterns must match (hinge+hinge, not lunge+swing) |
+
+**Exercise corrections applied:**
+- Shoulder Press, Tricep Extension, Tricep Kickback: added secondaryPosition
+- Sumo Squat, Reverse Lunge: fixed primaryMuscles
+- Renegade Row, Russian Twist: added core to primaryMuscles
+- Upright Row: added back to primaryMuscles
+
+**New features added:**
+- Substitution classes (15 groups of swappable exercises)
+- Equipment compatibility checking
+- Novelty bias in generation
+- Multi-primary muscles support
 
 ### 2025-01-25: Exercise Timing Analysis
 Analyzed 984 exercises from 49 classes:
@@ -201,6 +247,26 @@ Added 6 timing rules to `generationRules.ts` with data backing.
 - `rotation` - Russian twist, woodchop
 - `plank` - Planks, mountain climbers
 - `power` - Snatches, cleans, burpees
+
+### Substitution Classes (for variety)
+| Class | Exercises |
+|-------|-----------|
+| Bilateral Hinges | deadlift, rdl, sdl, good_morning |
+| Power Hinges | snatch, clean, db_swing |
+| Bilateral Squats | squat, goblet_squat, sumo_squat |
+| Forward Lunges | lunge, curtsy_lunge |
+| Chest Press | chest_press, incline_press, chest_fly |
+| Standing Rows | row, upright_row, reverse_fly |
+| Plank Core | plank, mountain_climber, commando |
+| Supine Core | situp, crunch, toe_touch, dead_bug, jacknife |
+| Power Finishers | burpee, thruster, squat_to_hi_pull, clean_to_press |
+
+### Block Generation Rules (from RLHF)
+- **Warmup**: Standing stretch → Transition (inchworm) → Plank work
+- **Upper Body**: Stay in bench zone OR standing zone
+- **Lower Body**: Hinge → Lunge → Core break (40%) → Lunge/Squat
+- **Finisher**: Build-up → Single power move (same movement family)
+- **Core**: NOT a block type - sprinkle as grip break (30-40% chance)
 
 ---
 

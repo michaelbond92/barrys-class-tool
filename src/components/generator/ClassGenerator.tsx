@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ConfigPanel } from './ConfigPanel';
 import { ClassPreview } from './ClassPreview';
 import { NLGenerationResults } from './NLGenerationResults';
-import { useClassGenerator } from '../../hooks/useClassGenerator';
+import { useClassGenerator, GenerationMode } from '../../hooks/useClassGenerator';
 import { useClassHistory } from '../../hooks/useClassHistory';
 import { calculateTreadAverage } from '../../services/treadParser';
 import { hasImportedData } from '../../data/exerciseBlocks';
@@ -15,7 +15,7 @@ import {
 import { DraftClassForComparison } from '../analytics/AnalyticsPage';
 import { RoundMetadata, PairedMinute, TreadMinuteMetadata, ExerciseMetadata } from '../../types/hierarchyTypes';
 
-type GeneratorMode = 'configure' | 'describe';
+type UIMode = 'configure' | 'describe';
 
 interface ClassGeneratorProps {
   onCompareClass?: (draftClass: DraftClassForComparison) => void;
@@ -27,6 +27,8 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
     config,
     generatedClass,
     isGenerating,
+    generationMode,
+    setGenerationMode,
     updateConfig,
     generate,
     setGeneratedClass,
@@ -34,13 +36,18 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
   } = useClassGenerator();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [mode, setMode] = useState<GeneratorMode>('configure');
+  const [uiMode, setUiMode] = useState<UIMode>('configure');
   const [nlQuery, setNlQuery] = useState('');
+  const [nlPrompt, setNlPrompt] = useState('');  // NL prompt for exercise-based generation
   const [nlResult, setNlResult] = useState<NLGenerationResult | null>(null);
   const [nlError, setNlError] = useState<string | null>(null);
   const [isNlGenerating, setIsNlGenerating] = useState(false);
 
   const handleGenerate = () => {
+    // Pass NL prompt to config if using exercise-based generation
+    if (generationMode === 'exercises' && nlPrompt.trim()) {
+      updateConfig({ nlPrompt: nlPrompt.trim() });
+    }
     generate();
     setIsEditing(false);
   };
@@ -77,6 +84,7 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
       setIsEditing(false);
       setNlResult(null);
       setNlQuery('');
+      setNlPrompt('');
     }
   };
 
@@ -231,7 +239,7 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900">Class Generator</h1>
             <p className="text-gray-600 mt-2">
-              {mode === 'configure'
+              {uiMode === 'configure'
                 ? 'Configure your class and generate a complete workout plan'
                 : 'Describe your ideal class in natural language'}
             </p>
@@ -241,9 +249,9 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
           <div className="flex justify-center mb-6">
             <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50">
               <button
-                onClick={() => { setMode('configure'); setNlResult(null); }}
+                onClick={() => { setUiMode('configure'); setNlResult(null); }}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                  mode === 'configure'
+                  uiMode === 'configure'
                     ? 'bg-white text-orange-600 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
@@ -251,9 +259,9 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
                 Configure
               </button>
               <button
-                onClick={() => { setMode('describe'); setNlResult(null); }}
+                onClick={() => { setUiMode('describe'); setNlResult(null); }}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                  mode === 'describe'
+                  uiMode === 'describe'
                     ? 'bg-white text-orange-600 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
@@ -264,8 +272,62 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
           </div>
 
           {/* Configure Mode */}
-          {mode === 'configure' && (
-            <div className="max-w-2xl mx-auto">
+          {uiMode === 'configure' && (
+            <div className="max-w-2xl mx-auto space-y-4">
+              {/* Generation Mode Toggle */}
+              <div className="bg-white rounded-lg shadow p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Generation Method
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setGenerationMode('exercises')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors text-left ${
+                      generationMode === 'exercises'
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-900">Exercise-Based</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Build from individual exercises with flow &amp; vibe matching
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setGenerationMode('blocks')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors text-left ${
+                      generationMode === 'blocks'
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-900">Block-Based</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Remix existing 2-4 min blocks from imported classes
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* NL Prompt Input (for exercise-based only) */}
+              {generationMode === 'exercises' && (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Style Prompt <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={nlPrompt}
+                    onChange={(e) => setNlPrompt(e.target.value)}
+                    placeholder="e.g., push/pull focus, high intensity, snatch finisher"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  />
+                  <div className="text-xs text-gray-500 mt-2">
+                    Describe exercise preferences to influence selection
+                  </div>
+                </div>
+              )}
+
               <ConfigPanel
                 config={config}
                 onConfigChange={updateConfig}
@@ -276,7 +338,7 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
           )}
 
           {/* Describe Mode */}
-          {mode === 'describe' && !nlResult && (
+          {uiMode === 'describe' && !nlResult && (
             <div className="max-w-2xl mx-auto">
               <div className="bg-white rounded-lg shadow p-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -345,7 +407,7 @@ export function ClassGenerator({ onCompareClass }: ClassGeneratorProps = {}) {
           )}
 
           {/* NL Results */}
-          {mode === 'describe' && nlResult && (
+          {uiMode === 'describe' && nlResult && (
             <div className="max-w-3xl mx-auto">
               <NLGenerationResults
                 result={nlResult}

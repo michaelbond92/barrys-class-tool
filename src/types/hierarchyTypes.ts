@@ -118,13 +118,17 @@ export type FinisherType =
 // ===== BLOCK TAXONOMY =====
 
 export type StructureTag =
-  | 'amrap'
   | 'emom'
+  | 'ladder_ascending'
+  | 'ladder_descending'
+  | 'split_30_30'
+  | 'split_45_15'
+  | 'combo_movement'
+  | 'amrap'
   | 'tempo'
   | 'drop_set'
   | 'hold_pulse'
   | 'superset'
-  | 'ladder'
   | 'rep_scheme'
   | 'same_side';
 
@@ -186,6 +190,18 @@ export interface ExerciseMetadata {
   gripDemand: GripDemand;
   isFinisherMove: boolean;
   isPowerMove: boolean;
+  hasComboMovement: boolean;          // Chains 2+ movements (e.g., "Squat to Press")
+
+  // ===== TIMING STRUCTURE =====
+  isEMOM: boolean;                    // Every Minute On the Minute format
+  emomNotation?: 'double_slash' | 'parentheses';  // How EMOM was notated
+  splitType?: '30_30' | '45_15';      // Split timing between exercises
+  ladder?: {                          // Rep ladder progression
+    type: 'ascending' | 'descending';
+    increment: number;
+    target?: string;                  // Specific exercise that changes (if targeted)
+    isTargeted: boolean;              // Whether ladder applies to specific exercise
+  };
 
   // ===== CONTEXT =====
   minuteInBlock: number;              // 0-indexed position in block

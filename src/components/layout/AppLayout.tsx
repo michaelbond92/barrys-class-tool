@@ -8,6 +8,9 @@ import { ClassHistory } from '../history/ClassHistory';
 import { SearchPage } from '../search/SearchPage';
 import { ImportPage } from '../import/ImportPage';
 import { AnalyticsPage, DraftClassForComparison } from '../analytics/AnalyticsPage';
+import { VibeCheckGame } from '../game/VibeCheckGame';
+import { TagValidationGame } from '../game/TagValidationGame';
+import { BlockBuilderGame } from '../game/BlockBuilderGame';
 
 export function AppLayout() {
   const [activeTab, setActiveTab] = useState<TabId>('generator');
@@ -47,6 +50,12 @@ export function AppLayout() {
             initialTab={draftClassForComparison ? 'compare' : undefined}
           />
         );
+      case 'vibecheck':
+        return <VibeCheckGame />;
+      case 'tagcheck':
+        return <TagValidationGame />;
+      case 'blockbuilder':
+        return <BlockBuilderGame />;
       default:
         return <ClassGenerator onCompareClass={handleCompareClass} />;
     }

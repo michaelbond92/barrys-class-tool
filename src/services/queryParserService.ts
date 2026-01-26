@@ -136,7 +136,7 @@ const QUERY_PATTERNS: QueryPattern[] = [
   },
   {
     patterns: [/\bladder\b/i, /\bpyramid\b/i],
-    extract: () => ({ structure: ['ladder'] }),
+    extract: () => ({ structure: ['ladder_ascending', 'ladder_descending'] }),
   },
   {
     patterns: [/\bhold/i, /\bpause/i],

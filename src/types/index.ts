@@ -49,6 +49,8 @@ export interface TreadEntry {
   blockType?: 'warmup' | 'workout';  // Type of block
   libraryIndex?: number;      // Index of this block in the library (e.g., "Tread Warmup #23")
   libraryTotal?: number;      // Total blocks available in that category/length
+  blockLength?: number;       // Length of this block in minutes (for shuffling)
+  isCustomBlock?: boolean;    // Whether this came from a custom block
 }
 
 // ===== FLOOR TYPES =====
@@ -62,6 +64,8 @@ export interface FloorEntry {
   blockType?: 'warmup' | 'workout';  // Type of block
   libraryIndex?: number;      // Index of this block in the library (e.g., "Floor Workout #47")
   libraryTotal?: number;      // Total blocks available in that category/length
+  blockLength?: number;       // Length of this block in minutes (for shuffling)
+  isCustomBlock?: boolean;    // Whether this came from a custom block
 }
 
 // ===== CLASS TYPES =====
@@ -94,6 +98,7 @@ export interface GeneratorConfig {
   round1Equipment: Equipment;
   round2Equipment: Equipment;
   maxTreadAverage: number;
+  nlPrompt?: string;  // Natural language prompt for exercise selection
 }
 
 // ===== PHASE ALLOCATION =====
@@ -110,3 +115,7 @@ export const STORAGE_KEYS = {
   DRAFT_CLASS: 'barrys_draft_class',
   USER_PREFS: 'barrys_preferences'
 } as const;
+
+// ===== RE-EXPORTS FROM HIERARCHY TYPES =====
+// New three-level data hierarchy (Class → Round → Block → Exercise)
+export * from './hierarchyTypes';

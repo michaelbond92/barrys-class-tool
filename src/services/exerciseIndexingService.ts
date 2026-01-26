@@ -654,3 +654,448 @@ export function getNextExercises(
     .map(name => index.exercises.get(name))
     .filter((e): e is IndexedExercise => e !== undefined);
 }
+
+// ============================================================================
+// NL PROMPT SCORING
+// Score exercises against natural language prompts
+// ============================================================================
+
+// Per-round constraints for complex prompts
+export interface RoundConstraints {
+  duration?: number;                    // "12 minutes"
+  movements?: MovementPattern[];        // "push", "pull"
+  muscles?: MuscleGroup[];              // "back", "chest"
+  mustInclude?: string[];               // "deadlifts", "snatches"
+  mustExclude?: string[];               // "no burpees"
+  treadIncline?: boolean;               // "incline" or "no incline"
+  treadSprints?: boolean;               // "sprints" or "no sprints"
+  treadEndurance?: boolean;             // "endurance runs" - steady pace, fewer sprints
+  intensity?: 'low' | 'medium' | 'high';
+  equipment?: 'heavy' | 'medium' | 'light';  // "heavies", "mediums", "lights"
+  compoundFocus?: boolean;              // "compound focused"
+}
+
+export interface NLParseResult {
+  // Global preferences (apply to both rounds unless overridden)
+  movements: MovementPattern[];
+  muscles: MuscleGroup[];
+  modifiers: string[];
+  intensity: 'low' | 'medium' | 'high' | null;
+  finisherType: string | null;
+  keywords: string[];
+
+  // Vibe/structure preferences (null = no preference, true = want more, false = exclude)
+  vibePreferences: {
+    combos: boolean | null;      // "lots of compound movements" or "no combos"
+    emom: boolean | null;        // "include EMOM" or "no EMOM"
+    ladders: boolean | null;     // "use ladders" or "no ladders"
+    splits: boolean | null;      // "add splits" or "no splits"
+    freshOnly: boolean | null;   // "only fresh exercises" or "mix it up"
+  };
+
+  // Per-round constraints (overrides global when specified)
+  round1?: RoundConstraints;
+  round2?: RoundConstraints;
+}
+
+/**
+ * Parse a natural language prompt into structured criteria
+ */
+export function parseNLPrompt(prompt: string): NLParseResult {
+  const lower = prompt.toLowerCase();
+  const result: NLParseResult = {
+    movements: [],
+    muscles: [],
+    modifiers: [],
+    intensity: null,
+    finisherType: null,
+    keywords: [],
+    vibePreferences: {
+      combos: null,
+      emom: null,
+      ladders: null,
+      splits: null,
+      freshOnly: null,
+    },
+  };
+
+  // Detect vibe preferences
+  // NOTE: Check exclusions FIRST before checking inclusions
+
+  // Combos / compound movements
+  if (/no\s+combo|no\s+compound|without\s+combo|without\s+compound|simple\s+exercise|basic\s+exercise/i.test(lower)) {
+    result.vibePreferences.combos = false;
+  } else if (/\b(lots?\s+of\s+)?(combo|compound|combination)/i.test(lower) ||
+      /more\s+compound/i.test(lower) ||
+      /squat\s+to\s+press|deadlift\s+to\s+row/i.test(lower)) {
+    result.vibePreferences.combos = true;
+  }
+
+  // EMOM
+  if (/\b(include|with|add|use)\s+emom/i.test(lower) ||
+      /emom\s+style/i.test(lower)) {
+    result.vibePreferences.emom = true;
+  } else if (/no\s+emom|without\s+emom|skip\s+emom/i.test(lower)) {
+    result.vibePreferences.emom = false;
+  }
+
+  // Ladders
+  if (/\b(include|with|add|use)\s+ladder/i.test(lower) ||
+      /ladder\s+pattern|progressive/i.test(lower)) {
+    result.vibePreferences.ladders = true;
+  } else if (/no\s+ladder|without\s+ladder/i.test(lower)) {
+    result.vibePreferences.ladders = false;
+  }
+
+  // Splits
+  if (/\b(include|with|add|use)\s+split/i.test(lower) ||
+      /30.?30|45.?15/i.test(lower)) {
+    result.vibePreferences.splits = true;
+  } else if (/no\s+split|without\s+split/i.test(lower)) {
+    result.vibePreferences.splits = false;
+  }
+
+  // Freshness
+  if (/fresh|new|haven.?t\s+used|unused|different/i.test(lower)) {
+    result.vibePreferences.freshOnly = true;
+  } else if (/mix|variety|anything|repeat|favorite/i.test(lower)) {
+    result.vibePreferences.freshOnly = false;
+  }
+
+  // Detect movement patterns
+  const movementPatterns: Record<MovementPattern, RegExp[]> = {
+    push: [/push/i, /press/i, /chest/i, /tricep/i],
+    pull: [/pull/i, /row/i, /curl/i, /back/i, /bicep/i],
+    hinge: [/hinge/i, /deadlift/i, /rdl/i, /swing/i, /good\s*morning/i],
+    squat: [/squat/i, /goblet/i, /sumo/i],
+    lunge: [/lunge/i, /split/i, /step.*up/i],
+    rotation: [/twist/i, /rotate/i, /oblique/i],
+    plank: [/plank/i, /core/i, /ab/i],
+    power: [/power/i, /explosive/i, /snatch/i, /clean/i, /burpee/i, /jump/i],
+    carry: [/carry/i, /farmer/i],
+  };
+
+  for (const [pattern, regexes] of Object.entries(movementPatterns)) {
+    for (const regex of regexes) {
+      if (regex.test(lower)) {
+        result.movements.push(pattern as MovementPattern);
+        break;
+      }
+    }
+  }
+
+  // Detect muscle groups
+  const musclePatterns: Record<MuscleGroup, RegExp[]> = {
+    chest: [/chest/i, /pec/i],
+    back: [/back/i, /lat/i],
+    shoulders: [/shoulder/i, /delt/i],
+    biceps: [/bicep/i, /curl/i],
+    triceps: [/tricep/i],
+    quads: [/quad/i, /leg/i],
+    hamstrings: [/hamstring/i, /ham/i],
+    glutes: [/glute/i, /butt/i, /booty/i],
+    calves: [/calf/i, /calves/i],
+    core: [/core/i, /ab/i, /stomach/i],
+    obliques: [/oblique/i, /side/i],
+    full_body: [/full\s*body/i, /total\s*body/i, /compound/i],
+  };
+
+  for (const [muscle, regexes] of Object.entries(musclePatterns)) {
+    for (const regex of regexes) {
+      if (regex.test(lower)) {
+        result.muscles.push(muscle as MuscleGroup);
+        break;
+      }
+    }
+  }
+
+  // Detect modifiers
+  if (/heavy/i.test(lower)) result.modifiers.push('heavy');
+  if (/tempo/i.test(lower)) result.modifiers.push('tempo');
+  if (/hold/i.test(lower)) result.modifiers.push('hold');
+  if (/burn\s*out/i.test(lower)) result.modifiers.push('burnout');
+  if (/amrap/i.test(lower)) result.modifiers.push('amrap');
+  if (/alternating|alt\b/i.test(lower)) result.modifiers.push('alternating');
+
+  // Detect intensity
+  if (/high\s*intensity|intense|hard|challenging/i.test(lower)) {
+    result.intensity = 'high';
+  } else if (/low\s*intensity|easy|gentle|light/i.test(lower)) {
+    result.intensity = 'low';
+  } else if (/medium|moderate/i.test(lower)) {
+    result.intensity = 'medium';
+  }
+
+  // Detect finisher type
+  if (/snatch/i.test(lower)) result.finisherType = 'snatches';
+  if (/burpee/i.test(lower)) result.finisherType = 'burpees';
+  if (/swing/i.test(lower)) result.finisherType = 'db_swings';
+
+  // Extract other keywords
+  const keywords = lower.match(/\b\w{4,}\b/g) || [];
+  result.keywords = keywords.filter(k =>
+    !['with', 'that', 'have', 'want', 'like', 'some', 'more', 'less'].includes(k)
+  );
+
+  // ============================================
+  // PER-ROUND CONSTRAINTS PARSING
+  // Uses direct pattern matching to avoid cross-contamination
+  // ============================================
+
+  // ============================================
+  // DURATION PATTERNS - HIGHEST PRIORITY
+  // ============================================
+
+  // "X and Y minutes" pattern
+  const andMinutesMatch = lower.match(/(\d+)\s*(?:min|minutes?)\s+and\s+(\d+)\s*(?:min|minutes?)/i);
+  if (andMinutesMatch) {
+    if (!result.round1) result.round1 = {};
+    if (!result.round2) result.round2 = {};
+    result.round1.duration = parseInt(andMinutesMatch[1], 10);
+    result.round2.duration = parseInt(andMinutesMatch[2], 10);
+  }
+
+  // ============================================
+  // MOVEMENT PATTERNS - Direct detection
+  // ============================================
+
+  // "first round is a push" or "round 1 is push"
+  const r1Movement = lower.match(/(?:first\s+round|round\s*1|r1)\s+(?:is\s+)?(?:a\s+)?(push|pull|hinge|squat|power)/i);
+  if (r1Movement) {
+    if (!result.round1) result.round1 = {};
+    result.round1.movements = [r1Movement[1] as MovementPattern];
+  }
+
+  // "second is pull" or "second round is pull"
+  const r2Movement = lower.match(/(?:second\s+(?:round\s+)?|round\s*2|r2)\s*(?:is\s+)?(?:a\s+)?(push|pull|hinge|squat|power)/i);
+  if (r2Movement) {
+    if (!result.round2) result.round2 = {};
+    result.round2.movements = [r2Movement[1] as MovementPattern];
+  }
+
+  // "push workout round 1" pattern
+  const directR1Movement = lower.match(/(push|pull|hinge|squat|power)\s+(?:\w+\s+)?(?:round\s*1|first\s+round)/i);
+  if (directR1Movement) {
+    if (!result.round1) result.round1 = {};
+    if (!result.round1.movements) result.round1.movements = [];
+    if (!result.round1.movements.includes(directR1Movement[1] as MovementPattern)) {
+      result.round1.movements.push(directR1Movement[1] as MovementPattern);
+    }
+  }
+
+  const directR2Movement = lower.match(/(push|pull|hinge|squat|power)\s+(?:\w+\s+)?(?:round\s*2|second\s+round)/i);
+  if (directR2Movement) {
+    if (!result.round2) result.round2 = {};
+    if (!result.round2.movements) result.round2.movements = [];
+    if (!result.round2.movements.includes(directR2Movement[1] as MovementPattern)) {
+      result.round2.movements.push(directR2Movement[1] as MovementPattern);
+    }
+  }
+
+  // ============================================
+  // MUSCLE & EXERCISE PATTERNS - "X in round Y"
+  // Split by sentences to avoid cross-contamination
+  // ============================================
+
+  // Helper to parse muscles and exercises from content
+  const parseMusclesAndExercises = (content: string) => {
+    const muscles: MuscleGroup[] = [];
+    const mustInclude: string[] = [];
+    if (/\bchest\b/i.test(content)) muscles.push('chest');
+    if (/\bback\b/i.test(content)) muscles.push('back');
+    if (/\bleg/i.test(content)) muscles.push('quads');
+    if (/\bshoulder/i.test(content)) muscles.push('shoulders');
+    if (/\bcore\b|\babs?\b/i.test(content)) muscles.push('core');
+    if (/\bdeadlifts?\b/i.test(content)) mustInclude.push('deadlift');
+    if (/\bsnatch/i.test(content)) mustInclude.push('snatch');
+    if (/\bburpee/i.test(content)) mustInclude.push('burpee');
+    if (/\bclean\b/i.test(content)) mustInclude.push('clean');
+    return { muscles, mustInclude };
+  };
+
+  // Split by sentences and look for round references
+  const sentences = lower.split(/[.!?]+/).filter(s => s.trim());
+
+  for (const sentence of sentences) {
+    // Check for "X in round 1" pattern
+    const r1Match = sentence.match(/(.+?)\s+(?:in|for)\s+(?:the\s+)?(?:first\s+round|round\s*1|r1)(?:\s|$|,)/i);
+    if (r1Match) {
+      const content = r1Match[1];
+      const parsed = parseMusclesAndExercises(content);
+      if (parsed.muscles.length > 0) {
+        if (!result.round1) result.round1 = {};
+        result.round1.muscles = parsed.muscles;
+      }
+      if (parsed.mustInclude.length > 0) {
+        if (!result.round1) result.round1 = {};
+        result.round1.mustInclude = parsed.mustInclude;
+      }
+    }
+
+    // Check for "X in round 2" pattern
+    const r2Match = sentence.match(/(.+?)\s+(?:in|for)\s+(?:the\s+)?(?:second\s+round|round\s*2|r2)(?:\s|$|,)/i);
+    if (r2Match) {
+      const content = r2Match[1];
+      const parsed = parseMusclesAndExercises(content);
+      if (parsed.muscles.length > 0) {
+        if (!result.round2) result.round2 = {};
+        result.round2.muscles = parsed.muscles;
+      }
+      if (parsed.mustInclude.length > 0) {
+        if (!result.round2) result.round2 = {};
+        result.round2.mustInclude = parsed.mustInclude;
+      }
+    }
+  }
+
+  // ============================================
+  // EQUIPMENT PATTERNS
+  // ============================================
+
+  // "Heavies in Round 1"
+  if (/heav(?:y|ies)\s+(?:in\s+)?(?:round\s*1|r1|first\s+round)/i.test(lower)) {
+    if (!result.round1) result.round1 = {};
+    result.round1.equipment = 'heavy';
+  }
+
+  // "Mediums in Round 2"
+  if (/medium(?:s)?\s+(?:in\s+)?(?:round\s*2|r2|second\s+round)/i.test(lower)) {
+    if (!result.round2) result.round2 = {};
+    result.round2.equipment = 'medium';
+  }
+
+  // ============================================
+  // INCLINE PATTERNS
+  // ============================================
+
+  // "incline on round 1" or "incline round 1"
+  if (/incline\s+(?:on\s+|in\s+)?(?:round\s*1|r1|first\s+round)/i.test(lower)) {
+    if (!result.round1) result.round1 = {};
+    result.round1.treadIncline = true;
+  }
+
+  // "incline round 2" - check it's not negated in same context
+  if (/incline\s+(?:on\s+|in\s+)?(?:round\s*2|r2|second\s+round)/i.test(lower)) {
+    // Only set if NOT followed by negation in same sentence
+    if (!/incline[^.]*and\s+not\s+(?:on\s+)?(?:round\s*(?:2|two)|r2|second)/i.test(lower)) {
+      if (!result.round2) result.round2 = {};
+      result.round2.treadIncline = true;
+    }
+  }
+
+  // Handle incline negation: "and not on round 2" or "not on round two"
+  if (/incline[^.]*\band\s+not\s+(?:on\s+|in\s+)?(?:round\s*(?:2|two)|r2|second)/i.test(lower) ||
+      /\bnot\s+(?:on\s+|in\s+)?round\s*two\b/i.test(lower)) {
+    if (!result.round2) result.round2 = {};
+    result.round2.treadIncline = false;
+  }
+
+  // ============================================
+  // ENDURANCE PATTERNS
+  // ============================================
+
+  if (/endurance\s+(?:runs?\s+)?(?:for\s+|in\s+)?(?:round\s*1|r1|first\s+round)/i.test(lower)) {
+    if (!result.round1) result.round1 = {};
+    result.round1.treadEndurance = true;
+    result.round1.treadSprints = false;
+  }
+
+  if (/endurance\s+(?:runs?\s+)?(?:for\s+|in\s+)?(?:round\s*2|r2|second\s+round)/i.test(lower)) {
+    if (!result.round2) result.round2 = {};
+    result.round2.treadEndurance = true;
+    result.round2.treadSprints = false;
+  }
+
+  // ============================================
+  // COMPOUND FOCUS PATTERNS
+  // ============================================
+
+  // "round 2 I want to be compound movement focused"
+  if (/(?:round\s*2|r2|second\s+round)[^.]*compound\s*(?:movement\s*)?focus/i.test(lower)) {
+    if (!result.round2) result.round2 = {};
+    result.round2.compoundFocus = true;
+  }
+
+  if (/(?:round\s*1|r1|first\s+round)[^.]*compound\s*(?:movement\s*)?focus/i.test(lower)) {
+    if (!result.round1) result.round1 = {};
+    result.round1.compoundFocus = true;
+  }
+
+  return result;
+}
+
+/**
+ * Score an exercise against an NL prompt
+ * Returns 0-100 score
+ */
+export function scoreExerciseForPrompt(
+  exercise: IndexedExercise,
+  parsed: NLParseResult
+): number {
+  let score = 50; // Base score
+
+  // Movement pattern match (high weight)
+  if (parsed.movements.includes(exercise.movementPattern)) {
+    score += 25;
+  }
+
+  // Muscle group match
+  if (parsed.muscles.includes(exercise.primaryMuscle)) {
+    score += 20;
+  }
+
+  // Modifier match
+  for (const mod of parsed.modifiers) {
+    if (exercise.modifiers.includes(mod)) {
+      score += 10;
+    }
+  }
+
+  // Intensity match
+  if (parsed.intensity) {
+    const exIntensity = exercise.intensityScore;
+    if (parsed.intensity === 'high' && exIntensity > 70) score += 15;
+    else if (parsed.intensity === 'medium' && exIntensity >= 40 && exIntensity <= 70) score += 15;
+    else if (parsed.intensity === 'low' && exIntensity < 40) score += 15;
+  }
+
+  // Finisher match
+  if (parsed.finisherType && exercise.isFinisher) {
+    if (exercise.rawText.toLowerCase().includes(parsed.finisherType.replace('_', ' '))) {
+      score += 20;
+    } else if (exercise.isFinisher) {
+      score += 10;
+    }
+  }
+
+  // Keyword matching (lower weight)
+  const exerciseWords = exercise.rawText.toLowerCase().split(/\s+/);
+  for (const keyword of parsed.keywords) {
+    if (exerciseWords.some(w => w.includes(keyword) || keyword.includes(w))) {
+      score += 5;
+    }
+  }
+
+  return Math.min(100, Math.max(0, score));
+}
+
+/**
+ * Find exercises matching an NL prompt
+ */
+export function findExercisesForPrompt(
+  index: ExerciseIndex,
+  prompt: string,
+  limit: number = 20
+): { exercise: IndexedExercise; score: number }[] {
+  const parsed = parseNLPrompt(prompt);
+  const candidates = Array.from(index.exercises.values());
+
+  const scored = candidates.map(exercise => ({
+    exercise,
+    score: scoreExerciseForPrompt(exercise, parsed),
+  }));
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, limit);
+}

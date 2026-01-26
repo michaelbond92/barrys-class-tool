@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User-specific data - only accessible by the owner
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Classes collection
+      match /classes/{classId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Rounds collection
+      match /rounds/{roundId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Floor blocks collection
+      match /floorBlocks/{blockId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Tread blocks collection
+      match /treadBlocks/{blockId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Usage history collection
+      match /usageHistory/{historyId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Position overrides collection
+      match /positionOverrides/{overrideId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Favorites collection
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Hidden items collection
+      match /hidden/{hiddenId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Block embeddings collection
+      match /blockEmbeddings/{embeddingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Round embeddings collection
+      match /roundEmbeddings/{embeddingId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Shared embeddings - read-only for authenticated users
+    // These are pre-computed embeddings for built-in blocks
+    match /sharedEmbeddings/{embeddingId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only admins via Firebase Console
+    }
+  }
+}

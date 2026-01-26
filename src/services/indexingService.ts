@@ -706,12 +706,18 @@ function detectStructureTags(content: string[]): StructureTag[] {
 
   if (/amrap/i.test(combined)) tags.add('amrap');
   if (/tempo/i.test(combined)) tags.add('tempo');
-  if (/drop.*set|\(-\)/i.test(combined)) tags.add('drop_set');
+  if (/drop.*set/i.test(combined)) tags.add('drop_set');
   if (/hold.*pulse|pulse.*hold/i.test(combined)) tags.add('hold_pulse');
   if (/\d+.*\d+.*\d+/i.test(combined)) tags.add('rep_scheme');
-  if (/\+\d|\(-/i.test(combined)) tags.add('ladder');
+  if (/\(\+\d+\)/.test(combined)) tags.add('ladder_ascending');
+  if (/\(-\d+\)/.test(combined)) tags.add('ladder_descending');
   if (/same\s*side|\bss\b/i.test(combined)) tags.add('same_side');
   if (/e\/s|each\s*side/i.test(combined)) tags.add('superset');
+  // New structure tags
+  if (/\/\//.test(combined) || /\w+\s*\(\w+\s*\w*\)/i.test(combined)) tags.add('emom');
+  if (/\|/.test(combined)) tags.add('split_30_30');
+  if (/\w+\s*\/\s*\w+/.test(combined) && !/[rl]\/[ld]/i.test(combined)) tags.add('split_45_15');
+  if (/\b\w+\s+to\s+\w+\b/i.test(combined) && !/toe\s*touch|side\s+to\s+side/i.test(combined)) tags.add('combo_movement');
 
   return Array.from(tags);
 }

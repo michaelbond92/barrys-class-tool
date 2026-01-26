@@ -318,11 +318,25 @@ function generateUpperStrengthBlock(): GeneratedBlock {
 
   const exercises: ExerciseDefinition[] = [];
 
-  // Pick 2-3 exercises from primary position
-  const mainExercises = pickRandom(positionExercises, 2 + Math.floor(Math.random() * 2));
-  exercises.push(...mainExercises);
+  // Pick first exercise
+  if (positionExercises.length > 0) {
+    const first = positionExercises[Math.floor(Math.random() * positionExercises.length)];
+    exercises.push(first);
+
+    // Pick 1-2 more exercises that have compatible equipment
+    const compatible = positionExercises.filter(e =>
+      e.id !== first.id &&
+      hasCompatibleEquipment(first, e)
+    );
+
+    if (compatible.length > 0) {
+      const count = Math.min(compatible.length, 1 + Math.floor(Math.random() * 2));
+      exercises.push(...pickRandom(compatible, count));
+    }
+  }
 
   // Maybe add 1 core exercise as grip break / active recovery (30% chance)
+  // Core usually has no equipment so it's always compatible
   if (Math.random() < 0.3) {
     const coreOptions = ALL_EXERCISES.filter(e =>
       isCore(e) &&
@@ -336,12 +350,15 @@ function generateUpperStrengthBlock(): GeneratedBlock {
     }
   }
 
+  // Get equipment description for reasoning
+  const equipmentDesc = exercises[0]?.equipment[0] || 'bodyweight';
+
   return {
     id: `upper-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     category: 'upper_strength',
     exercises,
     flowScore: calculateBlockFlowScore(exercises),
-    reasoning: `Upper body focus, ${usesBench ? 'bench' : 'standing'} position${exercises.some(isCore) ? ' + core break' : ''}`,
+    reasoning: `Upper body, ${usesBench ? 'bench' : 'standing'}, ${equipmentDesc}${exercises.some(isCore) ? ' + core break' : ''}`,
   };
 }
 
@@ -368,18 +385,25 @@ function generateLowerStrengthBlock(): GeneratedBlock {
 
   const exercises: ExerciseDefinition[] = [];
 
-  // Pattern: Hinge → Single-leg (lunge) → maybe core → more single-leg or squat
-  // Start with hinge (deadlift variations)
+  // Start with hinge (deadlift variations) - this sets the equipment type
+  let firstExercise: ExerciseDefinition | null = null;
   if (hinges.length > 0) {
-    exercises.push(hinges[Math.floor(Math.random() * hinges.length)]);
+    firstExercise = hinges[Math.floor(Math.random() * hinges.length)];
+    exercises.push(firstExercise);
   }
 
-  // Add a lunge variation
-  if (lunges.length > 0) {
+  // Add a lunge variation that has compatible equipment
+  const compatibleLunges = firstExercise
+    ? lunges.filter(e => hasCompatibleEquipment(firstExercise!, e))
+    : lunges;
+  if (compatibleLunges.length > 0) {
+    exercises.push(compatibleLunges[Math.floor(Math.random() * compatibleLunges.length)]);
+  } else if (lunges.length > 0) {
+    // Fallback if no compatible lunges
     exercises.push(lunges[Math.floor(Math.random() * lunges.length)]);
   }
 
-  // Maybe core break in the middle (40% chance)
+  // Maybe core break in the middle (40% chance) - core has no equipment so always ok
   if (Math.random() < 0.4) {
     const coreOptions = ALL_EXERCISES.filter(e =>
       isCore(e) &&
@@ -391,23 +415,29 @@ function generateLowerStrengthBlock(): GeneratedBlock {
     }
   }
 
-  // End with another lunge or squat
-  const finishers = [...lunges, ...squats].filter(e => !exercises.some(ex => ex.id === e.id));
-  if (finishers.length > 0) {
-    exercises.push(finishers[Math.floor(Math.random() * finishers.length)]);
+  // End with another lunge or squat (compatible equipment)
+  const allOptions = [...lunges, ...squats].filter(e => !exercises.some(ex => ex.id === e.id));
+  const compatibleFinishers = firstExercise
+    ? allOptions.filter(e => hasCompatibleEquipment(firstExercise!, e))
+    : allOptions;
+  if (compatibleFinishers.length > 0) {
+    exercises.push(compatibleFinishers[Math.floor(Math.random() * compatibleFinishers.length)]);
   }
+
+  const equipmentDesc = exercises[0]?.equipment[0] || 'bodyweight';
 
   return {
     id: `lower-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     category: 'lower_strength',
     exercises,
     flowScore: calculateBlockFlowScore(exercises),
-    reasoning: `Lower body: hinge → lunge${exercises.some(isCore) ? ' → core break' : ''} → lunge/squat`,
+    reasoning: `Lower body: hinge → lunge${exercises.some(isCore) ? ' → core' : ''} → lunge/squat (${equipmentDesc})`,
   };
 }
 
 function generateFullBodyBlock(): GeneratedBlock {
   // Full body mixes upper and lower but stays in ONE position zone
+  // AND maintains equipment compatibility
   const usesBench = Math.random() > 0.6; // 40% bench, 60% standing
 
   const exercises: ExerciseDefinition[] = [];
@@ -418,19 +448,42 @@ function generateFullBodyBlock(): GeneratedBlock {
       (e.position === 'bench_laying' || e.position === 'bench_sitting') &&
       !e.isWarmup && !e.isPower && !e.isFinisher
     );
-    exercises.push(...pickRandom(benchExercises, 3));
+
+    // Pick first exercise to set equipment type
+    if (benchExercises.length > 0) {
+      const first = benchExercises[Math.floor(Math.random() * benchExercises.length)];
+      exercises.push(first);
+
+      // Pick more that are equipment-compatible
+      const compatible = benchExercises.filter(e =>
+        e.id !== first.id && hasCompatibleEquipment(first, e)
+      );
+      exercises.push(...pickRandom(compatible, Math.min(2, compatible.length)));
+    }
   } else {
     // Standing zone: floor_standing (maybe one floor_laying)
     const standingExercises = ALL_EXERCISES.filter(e =>
       e.position === 'floor_standing' &&
       !e.isWarmup && !e.isPower && !e.isFinisher
     );
-    exercises.push(...pickRandom(standingExercises, 2 + Math.floor(Math.random() * 2)));
 
-    // Maybe add one floor exercise at the end
+    // Pick first exercise to set equipment type
+    if (standingExercises.length > 0) {
+      const first = standingExercises[Math.floor(Math.random() * standingExercises.length)];
+      exercises.push(first);
+
+      // Pick more that are equipment-compatible
+      const compatible = standingExercises.filter(e =>
+        e.id !== first.id && hasCompatibleEquipment(first, e)
+      );
+      exercises.push(...pickRandom(compatible, Math.min(2, compatible.length)));
+    }
+
+    // Maybe add one floor exercise at the end (core - no equipment)
     if (Math.random() < 0.3) {
       const floorExercises = ALL_EXERCISES.filter(e =>
         e.position === 'floor_laying' &&
+        isCore(e) &&
         !e.isWarmup && !e.isPower && !e.isFinisher
       );
       if (floorExercises.length > 0) {
@@ -439,12 +492,14 @@ function generateFullBodyBlock(): GeneratedBlock {
     }
   }
 
+  const equipmentDesc = exercises[0]?.equipment[0] || 'bodyweight';
+
   return {
     id: `fullbody-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     category: 'full_body',
     exercises,
     flowScore: calculateBlockFlowScore(exercises),
-    reasoning: `Full body, ${usesBench ? 'bench zone' : 'standing zone'} - mixed muscle groups`,
+    reasoning: `Full body, ${usesBench ? 'bench' : 'standing'} zone (${equipmentDesc})`,
   };
 }
 

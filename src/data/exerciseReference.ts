@@ -1105,6 +1105,8 @@ export function parseEquipment(equipmentStrings: string[]): EquipmentRequirement
 }
 
 // Check if two exercises have compatible equipment (can be in same block)
+// Exercises are compatible if they use the same weight TYPE (heavy/medium/light)
+// or if one has no equipment
 export function hasCompatibleEquipment(ex1: ExerciseDefinition, ex2: ExerciseDefinition): boolean {
   const eq1 = parseEquipment(ex1.equipment);
   const eq2 = parseEquipment(ex2.equipment);
@@ -1112,15 +1114,18 @@ export function hasCompatibleEquipment(ex1: ExerciseDefinition, ex2: ExerciseDef
   // No equipment = always compatible
   if (eq1.length === 0 || eq2.length === 0) return true;
 
-  // Check if they share at least one equipment type
-  for (const e1 of eq1) {
-    for (const e2 of eq2) {
-      if (e1.type === e2.type) return true;
-    }
-  }
+  // Get the primary equipment type for each (first one listed)
+  const type1 = eq1[0]?.type;
+  const type2 = eq2[0]?.type;
 
-  // Different equipment types - could still work but less ideal
-  return false;
+  // Same type = compatible (e.g., both use heavies, or both use mediums)
+  return type1 === type2;
+}
+
+// Get the primary equipment type for an exercise
+export function getPrimaryEquipmentType(exercise: ExerciseDefinition): EquipmentType {
+  const eq = parseEquipment(exercise.equipment);
+  return eq[0]?.type || 'none';
 }
 
 // ============================================================================

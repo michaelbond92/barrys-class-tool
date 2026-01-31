@@ -40,6 +40,7 @@ import {
   getDominantPosition,
   calculateFlowScore,
   calculateBlockFlowScore,
+  calculateEnhancedBlockFlowScore,
 } from './positionService';
 import {
   parseExercise,
@@ -348,7 +349,7 @@ function indexFloorBlock(
 ): BlockMetadata {
   const length = content.length as 2 | 3 | 4;
   const positions = content.map(c => detectPrimaryPosition(c));
-  const flowResult = calculateBlockFlowScore(content);
+  const flowResult = calculateEnhancedBlockFlowScore(content);
   const movementPatterns = detectMovementPatterns(content);
   const gripLoadScore = calculateGripLoadScore(content);
 
@@ -393,6 +394,14 @@ function indexFloorBlock(
     flowRating: flowResult.rating,
     totalTransitionCost: flowResult.totalTransitionCost,
     hasExcessiveTransitions: flowResult.totalTransitionCost > 6,
+    // Enhanced flow breakdown
+    positionScore: flowResult.positionScore,
+    weightPathScore: flowResult.weightPathScore,
+    movementPlaneScore: flowResult.movementPlaneScore,
+    gripFatigueScore: flowResult.gripFatigueScore,
+    weightPathCost: flowResult.weightPathCost,
+    planeViolations: flowResult.planeViolations,
+    consecutiveHighGrip: flowResult.consecutiveHighGrip,
     structure,
     movement,
     bodyFocus,

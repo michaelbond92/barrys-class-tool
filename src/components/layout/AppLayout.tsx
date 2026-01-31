@@ -11,6 +11,8 @@ import { AnalyticsPage, DraftClassForComparison } from '../analytics/AnalyticsPa
 import { VibeCheckGame } from '../game/VibeCheckGame';
 import { TagValidationGame } from '../game/TagValidationGame';
 import { BlockBuilderGame } from '../game/BlockBuilderGame';
+import { ExerciseEditor } from '../editor/ExerciseEditor';
+import { TransitionRater } from '../game/TransitionRater';
 
 export function AppLayout() {
   const [activeTab, setActiveTab] = useState<TabId>('generator');
@@ -56,6 +58,10 @@ export function AppLayout() {
         return <TagValidationGame />;
       case 'blockbuilder':
         return <BlockBuilderGame />;
+      case 'exerciseeditor':
+        return <ExerciseEditor />;
+      case 'transitionrater':
+        return <TransitionRater />;
       default:
         return <ClassGenerator onCompareClass={handleCompareClass} />;
     }

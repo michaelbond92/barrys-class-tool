@@ -7,8 +7,12 @@
 import {
   ExercisePosition,
   FlowScore,
+  EnhancedFlowScore,
   TransitionCostMatrix,
 } from '../types/hierarchyTypes';
+import { WeightPosition, WeightPath, MovementPlane, GripDemand } from '../data/types';
+import { findExercise, ExerciseDefinition } from '../data/exerciseReference';
+import { getExerciseWithOverrides } from './exerciseOverrideService';
 
 // ============================================================================
 // POSITION DETECTION PATTERNS
@@ -617,4 +621,403 @@ export function getAllPositionOverrides(): PositionOverride[] {
     // Ignore errors
   }
   return [];
+}
+
+// ============================================================================
+// ENHANCED FLOW SCORING
+// Incorporates weight path, movement plane, and grip demand
+// ============================================================================
+
+/**
+ * Weight path transition costs
+ * Lower = smoother transition when one exercise ends and another begins
+ * Cost reflects how far weights need to move between exercises
+ */
+const WEIGHT_PATH_COSTS: Record<WeightPosition, Record<WeightPosition, number>> = {
+  floor: {
+    floor: 0,
+    sides: 1,      // Pick up from floor to sides (natural deadlift motion)
+    chest: 2,      // Floor to chest requires a clean
+    shoulders: 2,  // Floor to shoulders (clean)
+    overhead: 3,   // Floor to overhead (snatch) - big move
+    extended: 3,   // Floor to extended (awkward)
+    behind_head: 4, // Floor to behind head (very awkward)
+    none: 0,       // Transitioning to bodyweight is free
+  },
+  sides: {
+    floor: 1,      // Put down (easy)
+    sides: 0,
+    chest: 1,      // Curl up to chest
+    shoulders: 2,  // Clean to shoulders
+    overhead: 2,   // Press from sides (through shoulders)
+    extended: 2,   // Raise to extended
+    behind_head: 3, // Sides to behind head (awkward)
+    none: 0,
+  },
+  chest: {
+    floor: 2,      // Put down from chest
+    sides: 1,      // Lower to sides
+    chest: 0,
+    shoulders: 1,  // Small lift
+    overhead: 1,   // Press up
+    extended: 1,   // Push forward (chest press motion)
+    behind_head: 2, // Around the head
+    none: 0,
+  },
+  shoulders: {
+    floor: 2,      // Put down
+    sides: 1,      // Lower to sides
+    chest: 1,      // Lower to chest
+    shoulders: 0,
+    overhead: 1,   // Press up (natural)
+    extended: 2,   // Push forward from shoulders
+    behind_head: 2, // Behind head
+    none: 0,
+  },
+  overhead: {
+    floor: 3,      // All the way down
+    sides: 2,      // Lower through
+    chest: 1,      // Lower to chest
+    shoulders: 1,  // Lower to shoulders (natural)
+    overhead: 0,
+    extended: 2,   // Different plane
+    behind_head: 1, // Just behind (tricep motion)
+    none: 0,
+  },
+  extended: {
+    floor: 3,      // Far away
+    sides: 2,      // Pull back to sides
+    chest: 1,      // Pull back to chest (fly motion)
+    shoulders: 2,  // Different position
+    overhead: 2,   // Different plane
+    extended: 0,
+    behind_head: 2, // Around
+    none: 0,
+  },
+  behind_head: {
+    floor: 4,      // Very far
+    sides: 3,      // Around and down
+    chest: 2,      // Around
+    shoulders: 2,  // Around
+    overhead: 1,   // Just up (natural tricep motion)
+    extended: 2,   // Different position
+    behind_head: 0,
+    none: 0,
+  },
+  none: {
+    floor: 0,      // Picking up weights is free from bodyweight
+    sides: 0,
+    chest: 0,
+    shoulders: 0,
+    overhead: 0,
+    extended: 0,
+    behind_head: 0,
+    none: 0,
+  },
+};
+
+/**
+ * Movement plane compatibility
+ * Same plane = 0, compatible = 1, incompatible = 2
+ */
+const PLANE_COMPATIBILITY: Record<MovementPlane, Record<MovementPlane, number>> = {
+  sagittal: {
+    sagittal: 0,    // Same plane
+    frontal: 2,     // Different plane - awkward mix
+    transverse: 1,  // Rotation can blend with sagittal
+  },
+  frontal: {
+    sagittal: 2,    // Different plane
+    frontal: 0,     // Same plane
+    transverse: 1,  // Rotation can blend somewhat
+  },
+  transverse: {
+    sagittal: 1,    // Rotation blends with forward/back
+    frontal: 1,     // Rotation blends with side-to-side
+    transverse: 0,  // Same plane
+  },
+};
+
+/**
+ * Parse exercise name from block text (e.g., "12 Chest Press" → "Chest Press")
+ */
+function parseExerciseName(blockText: string): string {
+  // Remove leading reps/numbers (e.g., "12 ", "8-10 ", "3 + 3 ")
+  let cleaned = blockText
+    .replace(/^\d+[\s\-\+]+\d*\s*/i, '')  // "12 ", "8-10 ", "3 + 3 "
+    .replace(/^x\s*\d+\s*/i, '')           // "x8 ", "x12 "
+    .replace(/^\d+\s*/i, '')               // Any remaining leading number
+    .trim();
+
+  // Remove trailing modifiers (e.g., "each", "per side", "ea")
+  cleaned = cleaned
+    .replace(/\s+(each|ea|per\s*side|total|reps?)$/i, '')
+    .trim();
+
+  return cleaned;
+}
+
+/**
+ * Look up exercise definition with overrides from exercise text
+ */
+function lookupExercise(exerciseText: string): ExerciseDefinition | undefined {
+  const name = parseExerciseName(exerciseText);
+  const base = findExercise(name);
+  if (!base) return undefined;
+
+  // Apply any user overrides
+  return getExerciseWithOverrides(base.id) || base;
+}
+
+/**
+ * Calculate weight path transition cost between two exercises
+ */
+function getWeightPathCost(
+  fromExercise: ExerciseDefinition | undefined,
+  toExercise: ExerciseDefinition | undefined
+): number {
+  // If we can't identify exercises, assume neutral cost
+  if (!fromExercise || !toExercise) return 1;
+
+  const fromPath = fromExercise.weightPath;
+  const toPath = toExercise.weightPath;
+
+  // If no weight path data, assume neutral
+  if (!fromPath || !toPath) return 1;
+
+  // Cost is: where does the previous exercise END → where does next exercise START
+  return WEIGHT_PATH_COSTS[fromPath.end]?.[toPath.start] ?? 1;
+}
+
+/**
+ * Check movement plane compatibility between two exercises
+ */
+function getPlaneCost(
+  fromExercise: ExerciseDefinition | undefined,
+  toExercise: ExerciseDefinition | undefined
+): number {
+  if (!fromExercise || !toExercise) return 0;
+
+  const fromPlane = fromExercise.movementPlane;
+  const toPlane = toExercise.movementPlane;
+
+  if (!fromPlane || !toPlane) return 0;
+
+  return PLANE_COMPATIBILITY[fromPlane]?.[toPlane] ?? 0;
+}
+
+/**
+ * Get grip demand for an exercise
+ */
+function getGripDemand(exercise: ExerciseDefinition | undefined): GripDemand {
+  return exercise?.gripDemand || 'medium';
+}
+
+/**
+ * Calculate enhanced flow score for a block of exercises
+ * Uses position, weight path, movement plane, and grip demand
+ */
+export function calculateEnhancedBlockFlowScore(exercises: string[]): EnhancedFlowScore {
+  // Base case: empty or single exercise
+  if (exercises.length === 0) {
+    return {
+      score: 100,
+      rating: 'great',
+      totalTransitionCost: 0,
+      uniquePositions: 0,
+      warnings: [],
+      positionScore: 100,
+      weightPathScore: 100,
+      movementPlaneScore: 100,
+      gripFatigueScore: 100,
+      weightPathCost: 0,
+      planeViolations: 0,
+      consecutiveHighGrip: 0,
+    };
+  }
+
+  if (exercises.length === 1) {
+    return {
+      score: 100,
+      rating: 'great',
+      totalTransitionCost: 0,
+      uniquePositions: 1,
+      warnings: [],
+      positionScore: 100,
+      weightPathScore: 100,
+      movementPlaneScore: 100,
+      gripFatigueScore: 100,
+      weightPathCost: 0,
+      planeViolations: 0,
+      consecutiveHighGrip: 0,
+    };
+  }
+
+  // Look up all exercises
+  const exerciseDefs = exercises.map(ex => lookupExercise(ex));
+  const positions = exercises.map(ex => detectPrimaryPosition(ex));
+
+  // === POSITION SCORING (existing logic) ===
+  let positionCost = 0;
+  const warnings: string[] = [];
+
+  for (let i = 1; i < positions.length; i++) {
+    const cost = getTransitionCost(positions[i - 1], positions[i]);
+    positionCost += cost;
+    if (cost === 3) {
+      warnings.push(`Major position change: ${formatPosition(positions[i - 1])} → ${formatPosition(positions[i])}`);
+    }
+  }
+
+  if (positions.includes('bench_standing')) {
+    warnings.push('Includes standing on bench');
+    positionCost += 5;
+  }
+
+  const uniquePositions = new Set(positions).size;
+  const maxPositionCost = (exercises.length - 1) * 3 + 5; // Max possible
+  const positionScore = Math.max(0, 100 - (positionCost / maxPositionCost) * 100);
+
+  // === WEIGHT PATH SCORING ===
+  let weightPathCost = 0;
+  for (let i = 1; i < exerciseDefs.length; i++) {
+    const cost = getWeightPathCost(exerciseDefs[i - 1], exerciseDefs[i]);
+    weightPathCost += cost;
+    if (cost >= 3) {
+      const fromName = exerciseDefs[i - 1]?.name || exercises[i - 1];
+      const toName = exerciseDefs[i]?.name || exercises[i];
+      warnings.push(`Weight repositioning: ${fromName} → ${toName}`);
+    }
+  }
+
+  const maxWeightCost = (exercises.length - 1) * 4; // Max possible (4 per transition)
+  const weightPathScore = Math.max(0, 100 - (weightPathCost / maxWeightCost) * 100);
+
+  // === MOVEMENT PLANE SCORING ===
+  let planeViolations = 0;
+  for (let i = 1; i < exerciseDefs.length; i++) {
+    const cost = getPlaneCost(exerciseDefs[i - 1], exerciseDefs[i]);
+    if (cost === 2) {
+      planeViolations++;
+      const fromName = exerciseDefs[i - 1]?.name || exercises[i - 1];
+      const toName = exerciseDefs[i]?.name || exercises[i];
+      const fromPlane = exerciseDefs[i - 1]?.movementPlane || 'unknown';
+      const toPlane = exerciseDefs[i]?.movementPlane || 'unknown';
+      warnings.push(`Plane mismatch: ${fromName} (${fromPlane}) → ${toName} (${toPlane})`);
+    }
+  }
+
+  const maxPlaneViolations = exercises.length - 1;
+  const movementPlaneScore = Math.max(0, 100 - (planeViolations / maxPlaneViolations) * 100);
+
+  // === GRIP FATIGUE SCORING ===
+  let consecutiveHighGrip = 0;
+  let currentHighGripStreak = 0;
+
+  for (const def of exerciseDefs) {
+    const grip = getGripDemand(def);
+    if (grip === 'high') {
+      currentHighGripStreak++;
+      consecutiveHighGrip = Math.max(consecutiveHighGrip, currentHighGripStreak);
+    } else {
+      currentHighGripStreak = 0;
+    }
+  }
+
+  // Penalty starts at 3+ consecutive high-grip exercises
+  const gripPenalty = Math.max(0, consecutiveHighGrip - 2);
+  const gripFatigueScore = Math.max(0, 100 - gripPenalty * 25);
+
+  if (consecutiveHighGrip >= 3) {
+    warnings.push(`${consecutiveHighGrip} consecutive high-grip exercises (grip fatigue risk)`);
+  }
+
+  // === COMBINED SCORE ===
+  // Weights: position 40%, weight path 30%, plane 20%, grip 10%
+  const combinedScore = Math.round(
+    positionScore * 0.4 +
+    weightPathScore * 0.3 +
+    movementPlaneScore * 0.2 +
+    gripFatigueScore * 0.1
+  );
+
+  // Total transition cost (for backwards compatibility)
+  const totalTransitionCost = positionCost + weightPathCost + planeViolations * 2;
+
+  // Rating
+  let rating: FlowScore['rating'];
+  if (combinedScore >= 85) rating = 'great';
+  else if (combinedScore >= 70) rating = 'good';
+  else if (combinedScore >= 50) rating = 'fair';
+  else rating = 'poor';
+
+  return {
+    score: combinedScore,
+    rating,
+    totalTransitionCost,
+    uniquePositions,
+    warnings,
+    positionScore: Math.round(positionScore),
+    weightPathScore: Math.round(weightPathScore),
+    movementPlaneScore: Math.round(movementPlaneScore),
+    gripFatigueScore: Math.round(gripFatigueScore),
+    weightPathCost,
+    planeViolations,
+    consecutiveHighGrip,
+  };
+}
+
+/**
+ * Get detailed flow analysis for debugging/display
+ */
+export function analyzeBlockFlow(exercises: string[]): {
+  enhanced: EnhancedFlowScore;
+  exerciseDetails: Array<{
+    text: string;
+    name: string | undefined;
+    position: ExercisePosition;
+    weightPath: WeightPath | undefined;
+    movementPlane: MovementPlane | undefined;
+    gripDemand: GripDemand;
+  }>;
+  transitions: Array<{
+    from: string;
+    to: string;
+    positionCost: number;
+    weightPathCost: number;
+    planeCost: number;
+  }>;
+} {
+  const enhanced = calculateEnhancedBlockFlowScore(exercises);
+  const exerciseDefs = exercises.map(ex => lookupExercise(ex));
+  const positions = exercises.map(ex => detectPrimaryPosition(ex));
+
+  const exerciseDetails = exercises.map((text, i) => ({
+    text,
+    name: exerciseDefs[i]?.name,
+    position: positions[i],
+    weightPath: exerciseDefs[i]?.weightPath,
+    movementPlane: exerciseDefs[i]?.movementPlane,
+    gripDemand: getGripDemand(exerciseDefs[i]),
+  }));
+
+  const transitions: Array<{
+    from: string;
+    to: string;
+    positionCost: number;
+    weightPathCost: number;
+    planeCost: number;
+  }> = [];
+
+  for (let i = 1; i < exercises.length; i++) {
+    transitions.push({
+      from: exerciseDefs[i - 1]?.name || exercises[i - 1],
+      to: exerciseDefs[i]?.name || exercises[i],
+      positionCost: getTransitionCost(positions[i - 1], positions[i]),
+      weightPathCost: getWeightPathCost(exerciseDefs[i - 1], exerciseDefs[i]),
+      planeCost: getPlaneCost(exerciseDefs[i - 1], exerciseDefs[i]),
+    });
+  }
+
+  return { enhanced, exerciseDetails, transitions };
 }

@@ -287,10 +287,19 @@ export interface BlockMetadata {
   positionSequence: ExercisePosition[];
 
   // ===== FLOW =====
-  flowScore: number;                  // 0-100
+  flowScore: number;                  // 0-100 (combined enhanced score)
   flowRating: 'great' | 'good' | 'fair' | 'poor';
   totalTransitionCost: number;
   hasExcessiveTransitions: boolean;
+
+  // Enhanced flow breakdown (optional for backwards compatibility)
+  positionScore?: number;             // Body position transitions (0-100)
+  weightPathScore?: number;           // Weight/dumbbell position flow (0-100)
+  movementPlaneScore?: number;        // Sagittal/frontal/transverse compatibility (0-100)
+  gripFatigueScore?: number;          // Consecutive high-grip penalty (0-100)
+  weightPathCost?: number;            // Total weight repositioning cost
+  planeViolations?: number;           // Number of plane mismatches
+  consecutiveHighGrip?: number;       // Max consecutive high-grip exercises
 
   // ===== STRUCTURE TAGS =====
   structure: StructureTag[];
@@ -496,6 +505,20 @@ export interface FlowScore {
   totalTransitionCost: number;
   uniquePositions: number;
   warnings: string[];
+}
+
+// Enhanced flow score with detailed breakdown
+export interface EnhancedFlowScore extends FlowScore {
+  // Score breakdown (each 0-100, weighted to final score)
+  positionScore: number;              // Body position transitions
+  weightPathScore: number;            // Weight/dumbbell position flow
+  movementPlaneScore: number;         // Sagittal/frontal/transverse compatibility
+  gripFatigueScore: number;           // Consecutive high-grip penalty
+
+  // Details
+  weightPathCost: number;             // Total weight repositioning cost
+  planeViolations: number;            // Number of plane mismatches
+  consecutiveHighGrip: number;        // Max consecutive high-grip exercises
 }
 
 // Transition cost matrix (position -> position -> cost)

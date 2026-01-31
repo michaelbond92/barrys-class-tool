@@ -6,6 +6,7 @@
 > - `TECHNICAL_SPEC.md` — Data models, taxonomies, detection patterns
 > - `PRD.md` — Product requirements
 > - `src/data/generationRules.ts` — Generation rules (user-confirmed)
+> - `src/services/transitionRulesService.ts` — Transition prediction rules (RLHF-trained)
 
 ---
 
@@ -13,12 +14,15 @@
 
 A tool for generating Barry's Bootcamp-style fitness classes. Users import real class spreadsheets, which are indexed and analyzed. The system then generates new classes that match Barry's style using block-based generation with flow scoring.
 
+**Live URL**: https://michaelbond92.github.io/barrys-class-tool
+
 ### Key Concepts
 
 - **Barry's Classes**: 40-42 min total, but taught as 2 rounds (R1 + R2 = 20-21 min) where groups swap between tread and floor
 - **Blocks**: 2-4 minute mini-arcs of exercises that flow together
 - **Flow Score**: Measures how smoothly exercises transition (position changes, grip load)
 - **Vibe**: The energy/intensity feel of a round (matches tread profile)
+- **Transition**: Exercise A → Exercise B. "YES" means it *could* work, not that it's ideal.
 
 ---
 
@@ -32,18 +36,18 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 | `barrys_exercise_index` | Indexed exercises with tags | 457 exercises |
 | `barrys_exercises` | Exercise definitions | 69 definitions |
 | `barrys_generation_feedback` | RLHF feedback from Vibe Check | varies |
+| `barrys_transition_ratings` | Manual transition ratings | 200 ratings |
 
 ### Key Files
 | File | Purpose |
 |------|---------|
 | `src/data/generationRules.ts` | 24 confirmed generation rules with helpers |
-| `src/data/exerciseReference.ts` | 40+ exercises, substitution classes, equipment helpers |
-| `src/data/types.ts` | Shared TypeScript types for positions, patterns, muscles |
-| `src/data/exerciseBlocks.ts` | Block definitions (being replaced by imports) |
-| `src/services/ruleExtractionService.ts` | Analyzes imported data for patterns |
-| `src/components/game/VibeCheckGame.tsx` | RLHF feedback collection for class generation |
-| `src/components/game/TagValidationGame.tsx` | Manual validation of exercise tagging |
-| `src/components/game/BlockBuilderGame.tsx` | RLHF for block generation with novelty tracking |
+| `src/data/exerciseReference.ts` | 71 exercises with full metadata (weightPath, movementPlane, etc.) |
+| `src/data/transitionData.json` | Barry's 787 proven transitions + 200 user ratings |
+| `src/data/transitionRatings.json` | Raw user ratings with notes |
+| `src/services/transitionRulesService.ts` | 11 prediction rules from RLHF (78% accuracy) |
+| `src/services/transitionScoringService.ts` | Scores transitions using rules + data |
+| `src/components/game/TransitionRater.tsx` | Smart RLHF tool with predictions |
 
 ### RLHF Storage Keys
 | Key | Description |
@@ -51,6 +55,63 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 | `barrys_tag_feedback` | Exercise tag corrections from Tag Check game |
 | `barrys_block_feedback` | Block ratings (good/bad/fixed) with text feedback |
 | `barrys_generated_combos` | Novelty tracking - avoids repeating bad combos |
+| `barrys_transition_ratings` | Exercise transition ratings (yes/no/skip) |
+
+---
+
+## Transition Rules (RLHF-Trained)
+
+### Rule Summary (from 200 ratings, 78% accuracy on high-confidence)
+
+| Rule | Prediction | Confidence | Notes |
+|------|------------|------------|-------|
+| Same position (laying/bench) | YES | 95% | 100% approval in RLHF |
+| Supine core → Standing | YES | 85% | Sit up and stand is natural |
+| Bench upper → Standing upper | YES | 85% | Muscle group continuity |
+| Supine core → Power finisher | YES | 80% | Block transition pattern |
+| Standing → Bench | NO | 85% | Awkward within a block |
+| Same movement family | YES | 80% | Hinge→hinge, squat→squat |
+| High grip → High grip | NO | 75% | Fatigue concern |
+| Warmup → Power | NO | 90% | Wrong sequence |
+| Weight path flows | YES | 70% | End position = start position |
+| Universal receivers (squat, DL) | YES | 65% | Accept many transitions |
+| Active rest exercises (dead bug) | NO | 80% | Don't flow well from other moves |
+
+### Key Learnings from RLHF
+
+1. **"YES" means possible, not ideal** - A transition could work within a block OR between blocks
+2. **Supine core flows UP** - Jacknife → Shoulder Press is fine (sit up and stand)
+3. **Bench upper → Standing upper works** - Chest Fly → Shoulder Press (muscle continuity)
+4. **Dead Bug is special** - It's "active rest", doesn't flow from intense exercises
+5. **Power finishers receive from anywhere** - End of block, you can transition from core
+
+### Exercise Categories
+
+```typescript
+// Supine core that flows INTO standing
+SUPINE_CORE_TO_STANDING = ['jacknife', 'situp', 'crunch', 'toe_touch', 'russian_twist', 'leg_lift', 'hip_raise']
+
+// Active rest - don't flow well
+ACTIVE_REST_EXERCISES = ['dead_bug', 'bird_dog', 'cat_cow']
+
+// Bench upper that flows to standing upper
+BENCH_UPPER_TO_STANDING_OK = ['chest_fly', 'chest_press', 'incline_press', 'pullover', 'skull_crusher']
+
+// Power finishers
+POWER_FINISHERS = ['snatch', 'clean', 'db_swing', 'burpee', 'devils_press', 'thruster']
+```
+
+---
+
+## Navigation Structure
+
+The app uses dropdown navigation to keep the header clean:
+
+**Main Tabs**: Generator, Library, History, Analytics, Import
+
+**Training Dropdown**: Transitions, Vibe Check, Tag Check, Block Builder, Exercises
+
+**More Dropdown**: Calculator, Search
 
 ---
 
@@ -90,55 +151,6 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 
 ---
 
-## Known Tagging Issues
-
-The current exercise tagging in `barrys_exercise_index` has errors:
-
-| Exercise | Current Tag | Problem |
-|----------|-------------|---------|
-| WGS | position: floor_laying, muscle: chest | Should be floor_standing/laying hybrid, targets hips/shoulders |
-| Good Morning | movementPattern: squat | Should be hinge pattern |
-
-**Action Required**: Manual validation through Tag Validation Game
-
----
-
-## Exercise Categories
-
-### Warmup Exercises
-- WGS (World's Greatest Stretch)
-- GMS (Good Morning Stretch)
-- Good Morning to Squat
-- Cat Cow
-- Hip Opener
-- Inchworm
-
-### Power/Finisher Exercises
-- Snatches (67% of finishers)
-- DB Swings (10% of finishers)
-- Clean to Press
-- Thrusters
-- Burpees
-- Squat to Hi Pull
-
-### Core Exercises
-- Plank
-- Russian Twist
-- Crunch
-- Sit Up
-- Dead Bug
-- Hollow
-- Mountain Climbers
-
-### Compound Movements
-- Squat to Press
-- Deadlift to Row
-- Lunge to Curl
-- Clean and Press
-- Squat to Hi Pull
-
----
-
 ## Current Work
 
 ### Completed
@@ -147,30 +159,63 @@ The current exercise tagging in `barrys_exercise_index` has errors:
 - [x] Build generation rules from user feedback (24 rules)
 - [x] Data-backed timing analysis
 - [x] Vibe Check Game for RLHF feedback
-- [x] Exercise Reference file with 40+ curated exercises
-- [x] Tag Validation Game for manual review (multi-select, all-fields mode)
-- [x] CLAUDE.md memory file for session continuity
+- [x] Exercise Reference file with 71 curated exercises
+- [x] Tag Validation Game for manual review
 - [x] Block Builder Game for RLHF on block generation
 - [x] Exercise substitution classes for controlled variety
 - [x] Equipment compatibility checking
 - [x] Novelty tracking to avoid repeating combos
 - [x] Deployed to GitHub Pages
+- [x] **Transition Rater** - Smart RLHF with predictions (200 ratings)
+- [x] **Transition Rules** - 11 rules at 78% accuracy
+- [x] **Enhanced Flow Scoring** - Position, weight path, plane, grip
+- [x] **Dropdown Navigation** - Clean header with grouped tabs
 
 ### In Progress
-- [ ] Validate remaining exercises via Tag Check game
-- [ ] Train Block Builder with more feedback
-- [ ] Fix tagging errors in indexed data based on feedback
+- [ ] Continue RLHF training to improve rule accuracy
+- [ ] Integrate transition rules into block generation
 
 ### Planned
 - [ ] Round Builder Game (rate sequences of blocks)
 - [ ] Embeddings integration (needs backend for production)
-- [ ] Mine real blocks for proven exercise sequences
 - [ ] NL generation feature
 - [ ] Library redesign
 
 ---
 
 ## Session Notes
+
+### 2026-01-31: Transition Rater & RLHF Training
+
+Built smart Transition Rater with prediction system:
+- 3 modes: Smart (uncertain), Review Predictions, Random
+- Shows system prediction with confidence %
+- Keyboard shortcuts: Y/N/S/A (accept prediction)
+- Tracks prediction accuracy in real-time
+
+**200 ratings collected:**
+- 60 YES (30%), 140 NO (70%)
+- User is stricter than Barry's actual transitions
+
+**Prediction accuracy:**
+- Overall: 62%
+- High confidence (90%+): 78%
+- NO predictions: 82%
+- YES predictions: 69%
+
+**Rules updated based on failures:**
+1. Supine core → standing = YES (was wrongly blocked)
+2. Bench upper → standing upper = YES (muscle continuity)
+3. Dead bug is special (active rest, doesn't flow)
+4. Power finishers can receive from core
+
+### 2026-01-30: Enhanced Flow Scoring
+
+Added multi-factor flow scoring:
+- Position score (40%) - transitions between positions
+- Weight path score (30%) - where dumbbells end/start
+- Movement plane score (20%) - sagittal/frontal/transverse
+- Grip fatigue score (10%) - consecutive high-grip exercises
 
 ### 2025-01-25: Block Builder Game & RLHF Training
 
@@ -190,28 +235,6 @@ Built Block Builder Game for training block generation:
 | Warmup flow | Standing stretch → transition (inchworm) → plank/floor work |
 | Lower body | Hinge first → lunge → core break → lunge/squat |
 | Finisher continuity | Movement patterns must match (hinge+hinge, not lunge+swing) |
-
-**Exercise corrections applied:**
-- Shoulder Press, Tricep Extension, Tricep Kickback: added secondaryPosition
-- Sumo Squat, Reverse Lunge: fixed primaryMuscles
-- Renegade Row, Russian Twist: added core to primaryMuscles
-- Upright Row: added back to primaryMuscles
-
-**New features added:**
-- Substitution classes (15 groups of swappable exercises)
-- Equipment compatibility checking
-- Novelty bias in generation
-- Multi-primary muscles support
-
-### 2025-01-25: Exercise Timing Analysis
-Analyzed 984 exercises from 49 classes:
-- Warmup: 98% in first 25% (avg 12%)
-- Power: 80% in last 25% (avg 90%)
-- Burpees behave differently by round
-- Core in middle (avg 59%)
-- Split timing (`|`) evenly distributed
-
-Added 6 timing rules to `generationRules.ts` with data backing.
 
 ---
 
@@ -248,18 +271,14 @@ Added 6 timing rules to `generationRules.ts` with data backing.
 - `plank` - Planks, mountain climbers
 - `power` - Snatches, cleans, burpees
 
-### Substitution Classes (for variety)
-| Class | Exercises |
-|-------|-----------|
-| Bilateral Hinges | deadlift, rdl, sdl, good_morning |
-| Power Hinges | snatch, clean, db_swing |
-| Bilateral Squats | squat, goblet_squat, sumo_squat |
-| Forward Lunges | lunge, curtsy_lunge |
-| Chest Press | chest_press, incline_press, chest_fly |
-| Standing Rows | row, upright_row, reverse_fly |
-| Plank Core | plank, mountain_climber, commando |
-| Supine Core | situp, crunch, toe_touch, dead_bug, jacknife |
-| Power Finishers | burpee, thruster, squat_to_hi_pull, clean_to_press |
+### Movement Families (for transitions)
+| Family | Exercises |
+|--------|-----------|
+| plank_family | plank, mountain_climber, commando, pushup, renegade_row, bear_crawl, inchworm |
+| hinge_family | deadlift, rdl, sdl, good_morning, clean, snatch, db_swing |
+| squat_family | squat, goblet_squat, sumo_squat, front_squat, split_squat, bulgarian_split_squat |
+| lunge_family | lunge, reverse_lunge, curtsy_lunge, lateral_lunge |
+| core_supine | situp, crunch, toe_touch, jacknife, russian_twist, leg_lift, hip_raise |
 
 ### Block Generation Rules (from RLHF)
 - **Warmup**: Standing stretch → Transition (inchworm) → Plank work
@@ -271,7 +290,7 @@ Added 6 timing rules to `generationRules.ts` with data backing.
 
 ---
 
-## Weight Path Model (NEW - for compound flow)
+## Weight Path Model
 
 Exercises have a weight position at START, MID, and END of the movement.
 Compounds work when one exercise's MID or END matches the next exercise's START.
@@ -286,16 +305,6 @@ Compounds work when one exercise's MID or END matches the next exercise's START.
 | `overhead` | Above head | Press top |
 | `extended` | Arms extended forward | Chest press top |
 | `behind_head` | Behind head | Skull crusher bottom |
-
-### Example Weight Paths
-| Exercise | Start | Mid | End |
-|----------|-------|-----|-----|
-| Deadlift | floor | sides | sides |
-| Clean | floor | sides | shoulders |
-| Shoulder Press | shoulders | overhead | shoulders |
-| Bicep Curl | sides | shoulders | sides |
-| Chest Press | chest | extended | chest |
-| Skull Crusher | extended | behind_head | extended |
 
 ### Compound Flow Rule
 Exercise A → B works if:
@@ -325,22 +334,10 @@ Lateral movements don't mix with sagittal (user feedback: lateral lunge doesn't 
 | `floor_kneeling` | Kneeling on floor | Kneeling press |
 | `bench_laying` | Lying on bench | Chest press, skull crusher |
 | `bench_sitting` | Sitting on bench | Russian twist, seated press |
-| `bench_kneeling` | Kneeling on bench | Banded kickbacks, banded tricep ext |
+| `bench_kneeling` | Kneeling on bench | Banded kickbacks |
 | `bench_facing` | Standing at bench, facing it | Lateral movements |
 | `bench_front` | At front of bench, facing away | Step-ups |
 
 ---
 
-## Next: Exercise Metadata Validation
-
-User will validate:
-1. Exercise list completeness
-2. Equipment options per exercise (2H, 1H, 2M, etc.)
-3. Weight paths (start/mid/end positions)
-4. Movement planes
-
-Then we can add this metadata and use it for smarter block generation.
-
----
-
-*Last Updated: 2025-01-26*
+*Last Updated: 2026-01-31*

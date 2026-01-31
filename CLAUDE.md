@@ -61,50 +61,53 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 
 ## Transition Rules (RLHF-Trained)
 
-### Rule Summary (from 300 ratings, 63% overall, 82% NO predictions)
+### Rule Summary (from 402 ratings, 72% overall, YES 63%, NO 78%)
 
 | Rule | Prediction | Confidence | Notes |
 |------|------------|------------|-------|
-| Split squat as destination | NO | 95% | 100% NO rate (10/10) |
-| Glute bridge as source | NO | 85% | 83% NO rate (5/6) |
-| Active rest destination | NO | 85% | Dead bug, bird dog don't receive |
-| Pullover → other bench | NO | 90% | Pullover doesn't flow to skull crusher, incline |
-| Plank → supine | NO | 90% | Flipping over is awkward |
-| Supine core → complex compound | NO | 85% | Situp → SDL to Lunge too much |
-| Supine core → simple standing | YES | 80% | Situp → Squat, Deadlift works |
+| Split squat destination | NO | 95% | 100% NO rate (10/10) |
+| Universal receivers | YES | 80% | Single Arm Row, Squat, Deadlift accept many |
+| Standing curls → Bench | YES | 85% | Bicep Curl → Skull Crusher works |
+| Standing curls → Supine | YES | 80% | Hammer Curl → Russian Twist works |
+| Standing → Supine Core | YES | 80% | Squat to Press → Jacknife works |
+| Hip Thrust → Supine Core | YES | 85% | Same floor zone |
+| Supine → Supine Core | YES | 90% | Lat Pullover → Sit Up works |
+| Pullover → other bench | NO | 90% | Doesn't flow despite same position |
+| Renegade → Glute Bridge | YES | 75% | End of plank work, flip is OK |
+| Supine → complex compound | NO | 85% | Situp → SDL to Lunge too much |
+| Supine → simple standing | YES | 80% | Squat, Deadlift, Shoulder Press |
 | Same bench (non-pullover) | YES | 85% | Chest Fly → Skull Crusher works |
-| Standing → Bench | NO | 85% | Awkward within a block |
+| Power → Supine Core | YES | 80% | Clean to Press → Sit Up (rest after power) |
 | High grip → High grip | NO | 75% | Fatigue concern |
 | Warmup → Power | NO | 90% | Wrong sequence |
-| Same family (not squat) | YES | 75% | Hinge→hinge works, squat family has issues |
-| Universal receivers | YES | 65% | Only simple squat/deadlift |
+| Same family (not squat) | YES | 75% | Hinge→hinge works |
 
-### Key Learnings from 300 Ratings
+### Key Learnings from 402 Ratings
 
-1. **"YES" means possible, not ideal** - A transition could work within a block OR between blocks
-2. **Split squat is special** - NEVER a valid destination (100% NO rate)
-3. **Glute bridge is special** - Almost never flows OUT (83% NO)
-4. **Pullover breaks bench rule** - Same position doesn't help; pullover → skull crusher = NO
-5. **Supine core is nuanced** - Works with SIMPLE standing, not complex compounds
-6. **Squat family has issues** - Bulgarian → Split = NO despite same family
+1. **Bi-directional flows** - Standing ↔ Supine Core works both ways
+2. **Standing Curls are special** - Flow to bench AND supine (unique transition ability)
+3. **Universal Receivers** - Single Arm Row, Squat, Deadlift accept almost anything
+4. **Hip Thrust → Supine = YES** - Same floor zone, not awkward like we thought
+5. **Power → Core = YES** - Rest on floor after power finisher makes sense
+6. **Renegade → Glute Bridge = YES** - End of plank work, flip is intentional
 
-### Problem Exercises
+### Exercise Categories
 
 ```typescript
+// Universal receivers - accept from many sources
+UNIVERSAL_RECEIVERS = ['squat', 'goblet_squat', 'deadlift', 'single_arm_row', 'row']
+
+// Standing curls flow to bench AND supine
+STANDING_CURLS = ['bicep_curl', 'hammer_curl', 'hammer_curl_to_press', 'curl_to_press']
+
+// Bench that receives from curls
+BENCH_FROM_CURLS = ['skull_crusher', 'chest_fly', 'chest_press']
+
 // NEVER valid as destination
 PROBLEM_DESTINATIONS = ['split_squat']
 
-// Rarely flow OUT
-GLUTE_BRIDGE_EXERCISES = ['glute_bridge', 'hip_thrust']
-
 // Don't flow to other bench exercises
 PULLOVER_EXERCISES = ['pullover', 'lat_pullover', 'lat_pullover_to_crunch']
-
-// Supine core doesn't flow to these
-COMPLEX_COMPOUNDS = ['sdl_to_reverse_lunge', 'clean_to_press', 'squat_to_hi_pull', 'lunge_to_curl']
-
-// Supine core DOES flow to these
-SIMPLE_STANDING = ['squat', 'goblet_squat', 'sumo_squat', 'deadlift', 'rdl', 'shoulder_press']
 ```
 
 ---
@@ -191,7 +194,7 @@ The app uses dropdown navigation to keep the header clean:
 
 ## Session Notes
 
-### 2026-01-31: Transition Rater & RLHF Training (300 ratings)
+### 2026-01-31: Transition Rater & RLHF Training (402 ratings)
 
 Built smart Transition Rater with prediction system:
 - 3 modes: Smart (uncertain), Review Predictions, Random
@@ -199,32 +202,36 @@ Built smart Transition Rater with prediction system:
 - Keyboard shortcuts: Y/N/S/A (accept prediction)
 - Tracks prediction accuracy in real-time
 
-**300 ratings collected:**
-- 103 YES (34%), 197 NO (66%)
+**402 ratings collected:**
+- 136 YES (34%), 266 NO (66%)
 - User is stricter than Barry's actual transitions
 
-**Prediction accuracy (after 300):**
-- Overall: 63%
-- YES predictions: 59%
-- NO predictions: 82%
+**Prediction accuracy (after 402):**
+- Overall: 72%
+- YES predictions: 63%
+- NO predictions: 78%
+- New 102 ratings: 76% accuracy (rules improving!)
 
-**Major rule updates from 300 ratings:**
+**Major discoveries from 402 ratings:**
 
 | Finding | Rule Update |
 |---------|-------------|
-| Split squat = 100% NO | Added as PROBLEM_DESTINATION |
-| Glute bridge = 83% NO | Added as source that rarely works |
-| Pullover → bench = NO | Same position rule doesn't apply |
-| Supine → split_squat = NO | Complex destinations don't work |
-| Supine → simple standing = YES | squat, deadlift, shoulder_press |
-| Squat family issues | Bulgarian → Split = NO |
+| Standing → Supine Core = YES | Lie down for core is natural |
+| Standing Curls → Bench = YES | Bicep Curl → Skull Crusher works |
+| Standing Curls → Supine = YES | Hammer Curl → Russian Twist works |
+| Hip Thrust → Supine Core = YES | Same floor zone, not awkward |
+| Renegade → Glute Bridge = YES | End of plank work, flip is OK |
+| Power → Supine Core = YES | Rest on floor after power |
+| Universal receivers expanded | Single Arm Row, Squat, Deadlift |
 
-**High-confidence failures fixed:**
-- Pullover → Skull Crusher (was YES 95%, now NO)
-- Lat Pullover → Dead Bug (was YES 95%, now NO)
-- Glute Bridge → any (was YES, now NO 85%)
-- Renegade Row → Glute Bridge (was YES 95%, now NO)
-- Devil's Press → Bear Crawl (was YES 95%, now NO)
+**Key insight:** Transitions are bi-directional for Supine Core:
+- Standing → Supine Core = YES (lie down)
+- Supine Core → Standing = YES (sit up and stand)
+
+**Standing curls are uniquely flexible:**
+- Flow to bench exercises (Skull Crusher, Chest Fly)
+- Flow to supine core (Russian Twist, Jacknife)
+- Flow to dead bug (Hammer Curl → Dead Bug = YES)
 
 ### 2026-01-30: Enhanced Flow Scoring
 

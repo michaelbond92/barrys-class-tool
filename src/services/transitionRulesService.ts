@@ -5,8 +5,8 @@
 // IMPORTANT: "YES" means the transition COULD work (possible), not ideal
 // These rules apply within blocks OR between blocks
 //
-// Updated: 2026-01-31 after 300 ratings analysis
-// Accuracy: 63% overall, 82% on NO predictions
+// Updated: 2026-01-31 after 402 ratings analysis
+// Accuracy: 72% overall, YES 63%, NO 78%
 // ============================================================================
 
 import { ExerciseDefinition } from '../data/exerciseReference';
@@ -26,29 +26,28 @@ export interface TransitionPrediction {
 // Exercise Categories for Special Handling
 // ============================================================================
 
-// Supine core exercises - BUT they don't always flow to standing
-// They work with SIMPLE standing moves, not complex ones
+// Supine core exercises - flow both ways with standing
 const SUPINE_CORE_EXERCISES = [
   'jacknife', 'situp', 'crunch', 'toe_touch',
-  'leg_lift', 'hip_raise', 'russian_twist', 'lat_pullover'
+  'leg_lift', 'hip_raise', 'russian_twist'
 ];
 
-// Dead bug is special - it's an "active rest" position, doesn't flow well
+// Dead bug is special - it's an "active rest" position
+// BUT can receive from standing curls (Hammer Curl → Dead Bug = YES)
 const ACTIVE_REST_EXERCISES = ['dead_bug', 'bird_dog', 'cat_cow'];
 
-// Glute bridge is also special - mostly doesn't flow (5/6 NO in RLHF)
-const GLUTE_BRIDGE_EXERCISES = ['glute_bridge', 'hip_thrust'];
+// Hip thrust/glute bridge - CAN flow to supine core (same floor zone)
+const HIP_THRUST_EXERCISES = ['glute_bridge', 'hip_thrust'];
 
 // Split squat is a "problem destination" - 100% NO rate in RLHF (10/10)
 const PROBLEM_DESTINATIONS = ['split_squat'];
 
-// Pullover exercises don't flow well to other bench exercises (bench→bench fails)
+// Pullover exercises don't flow well to other bench exercises
 const PULLOVER_EXERCISES = ['pullover', 'lat_pullover', 'lat_pullover_to_crunch'];
 
 // Complex compound movements - supine core doesn't flow to these
 const COMPLEX_COMPOUNDS = [
-  'sdl_to_reverse_lunge', 'clean_to_press', 'squat_to_hi_pull',
-  'lunge_to_curl', 'squat_to_reverse_lunge', 'deadlift_to_row'
+  'sdl_to_reverse_lunge', 'lunge_to_curl', 'squat_to_reverse_lunge'
 ];
 
 // Simple standing movements - supine core CAN flow to these
@@ -57,17 +56,30 @@ const SIMPLE_STANDING = [
   'shoulder_press', 'curl_to_press', 'hammer_curl_to_press'
 ];
 
-// Power/finisher exercises - context dependent
+// Standing curls that can flow to bench exercises
+const STANDING_CURLS = [
+  'bicep_curl', 'hammer_curl', 'hammer_curl_to_press', 'curl_to_press'
+];
+
+// Bench exercises that receive from standing curls
+const BENCH_FROM_CURLS = [
+  'skull_crusher', 'skull_crusher_to_close_grip', 'chest_fly', 'chest_press'
+];
+
+// Power/finisher exercises
 const POWER_FINISHERS = [
   'snatch', 'clean', 'db_swing', 'burpee', 'weighted_burpee',
   'devils_press', 'thruster', 'squat_to_hi_pull', 'clean_to_press'
 ];
 
-// Warmup exercises - should be early, not mid-flow
+// Warmup exercises
 const WARMUP_EXERCISES = ['wgs', 'gms', 'cat_cow', 'inchworm', 'hip_opener', 'good_morning_stretch'];
 
 // Plank family - floor laying but prone (face down)
 const PLANK_FAMILY = ['plank', 'mountain_climber', 'commando', 'pushup', 'renegade_row', 'plank_drag', 'bear_crawl', 'inchworm'];
+
+// Universal receivers - accept transitions from many sources
+const UNIVERSAL_RECEIVERS = ['squat', 'goblet_squat', 'deadlift', 'single_arm_row', 'row'];
 
 // Position zone groupings
 const POSITION_ZONES = {
@@ -76,7 +88,7 @@ const POSITION_ZONES = {
   bench_zone: ['bench_laying', 'bench_sitting', 'bench_kneeling'],
 };
 
-// Movement pattern families that flow together
+// Movement pattern families
 const MOVEMENT_FAMILIES = {
   plank_family: ['plank', 'mountain_climber', 'commando', 'pushup', 'renegade_row', 'plank_drag', 'bear_crawl', 'inchworm'],
   hinge_family: ['deadlift', 'rdl', 'sdl', 'good_morning', 'clean', 'snatch', 'db_swing'],
@@ -116,8 +128,8 @@ function isActiveRestExercise(exerciseId: string): boolean {
   return ACTIVE_REST_EXERCISES.some(e => exerciseId.includes(e));
 }
 
-function isGluteBridgeExercise(exerciseId: string): boolean {
-  return GLUTE_BRIDGE_EXERCISES.some(e => exerciseId.includes(e));
+function isHipThrustExercise(exerciseId: string): boolean {
+  return HIP_THRUST_EXERCISES.some(e => exerciseId.includes(e));
 }
 
 function isProblemDestination(exerciseId: string): boolean {
@@ -136,6 +148,14 @@ function isSimpleStanding(exerciseId: string): boolean {
   return SIMPLE_STANDING.some(e => exerciseId.includes(e));
 }
 
+function isStandingCurl(exerciseId: string): boolean {
+  return STANDING_CURLS.some(e => exerciseId.includes(e));
+}
+
+function isBenchFromCurls(exerciseId: string): boolean {
+  return BENCH_FROM_CURLS.some(e => exerciseId.includes(e));
+}
+
 function isPowerFinisher(exerciseId: string): boolean {
   return POWER_FINISHERS.some(e => exerciseId.includes(e));
 }
@@ -146,6 +166,10 @@ function isWarmupExercise(exerciseId: string): boolean {
 
 function isPlankFamily(exerciseId: string): boolean {
   return PLANK_FAMILY.some(e => exerciseId.includes(e));
+}
+
+function isUniversalReceiver(exerciseId: string): boolean {
+  return UNIVERSAL_RECEIVERS.some(e => exerciseId.includes(e));
 }
 
 // ============================================================================
@@ -176,30 +200,79 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 2: Glute Bridge transitions are mostly NO (5/6 in RLHF)
+  // RULE 2: Universal Receivers = YES
+  // Single Arm Row, Squat, Deadlift accept many transitions
   // -------------------------------------------------------------------------
-  if (isGluteBridgeExercise(fromId)) {
-    prediction = 'no';
-    confidence = 85;
-    reasons.push('Glute bridge transitions rarely work (83% NO rate)');
-    ruleApplied = 'glute_bridge_source';
+  if (isUniversalReceiver(toId)) {
+    prediction = 'yes';
+    confidence = 80;
+    reasons.push(`${to.name} is a universal receiver`);
+    ruleApplied = 'universal_receiver';
     return { prediction, confidence, reasons, ruleApplied };
   }
 
   // -------------------------------------------------------------------------
-  // RULE 3: Active rest exercises don't flow well
+  // RULE 3: Standing Curls → Bench = YES
+  // Bicep Curl → Skull Crusher, Hammer Curl → Chest Fly works
   // -------------------------------------------------------------------------
-  if (isActiveRestExercise(toId) && !isActiveRestExercise(fromId)) {
-    prediction = 'no';
+  if (isStandingCurl(fromId) && isBenchFromCurls(toId)) {
+    prediction = 'yes';
     confidence = 85;
-    reasons.push(`${to.name} is active rest - doesn't flow from other exercises`);
-    ruleApplied = 'active_rest_destination';
+    reasons.push('Standing curls → bench exercises works');
+    ruleApplied = 'curls_to_bench';
     return { prediction, confidence, reasons, ruleApplied };
   }
 
   // -------------------------------------------------------------------------
-  // RULE 4: Pullover → other bench exercises = NO
-  // Pullover → Skull Crusher, Incline Press, etc. all failed in RLHF
+  // RULE 4: Standing Curls → Supine Core = YES
+  // Hammer Curl → Russian Twist, Bicep Curl → Situp works
+  // -------------------------------------------------------------------------
+  if (isStandingCurl(fromId) && isSupineCoreExercise(toId)) {
+    prediction = 'yes';
+    confidence = 80;
+    reasons.push('Standing curls → supine core works');
+    ruleApplied = 'curls_to_supine';
+    return { prediction, confidence, reasons, ruleApplied };
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 5: Standing → Supine Core = YES (lie down to do core)
+  // Squat to Press → Jacknife, any standing → core works
+  // -------------------------------------------------------------------------
+  if (from.position === 'floor_standing' && isSupineCoreExercise(toId)) {
+    prediction = 'yes';
+    confidence = 80;
+    reasons.push('Standing → supine core (lie down for core)');
+    ruleApplied = 'standing_to_supine';
+    return { prediction, confidence, reasons, ruleApplied };
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 6: Hip Thrust → Supine Core = YES (same floor zone)
+  // Hip Thrust → Jacknife, Hip Thrust → Russian Twist works
+  // -------------------------------------------------------------------------
+  if (isHipThrustExercise(fromId) && isSupineCoreExercise(toId)) {
+    prediction = 'yes';
+    confidence = 85;
+    reasons.push('Hip thrust → supine core (same floor zone)');
+    ruleApplied = 'hip_thrust_to_supine';
+    return { prediction, confidence, reasons, ruleApplied };
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 7: Supine Core → Supine Core = YES
+  // Lat Pullover to Crunch → Sit Up works
+  // -------------------------------------------------------------------------
+  if (isSupineCoreExercise(fromId) && isSupineCoreExercise(toId)) {
+    prediction = 'yes';
+    confidence = 90;
+    reasons.push('Supine core → supine core (same position)');
+    ruleApplied = 'supine_to_supine';
+    return { prediction, confidence, reasons, ruleApplied };
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 8: Pullover exercises → other bench = NO
   // -------------------------------------------------------------------------
   if (isPulloverExercise(fromId) && from.position === 'bench_laying' && to.position === 'bench_laying') {
     prediction = 'no';
@@ -210,20 +283,22 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 5: Plank family → supine (glute bridge, etc.) = NO
-  // Flipping over mid-block is awkward
+  // RULE 9: Plank family → supine/glute = contextual
+  // Renegade Row to Pushup → Glute Bridge = YES (end of plank work)
   // -------------------------------------------------------------------------
-  if (isPlankFamily(fromId) && (isGluteBridgeExercise(toId) || isActiveRestExercise(toId))) {
-    prediction = 'no';
-    confidence = 90;
-    reasons.push('Plank → supine (flip over) is awkward');
-    ruleApplied = 'plank_to_supine';
-    return { prediction, confidence, reasons, ruleApplied };
+  if (isPlankFamily(fromId) && isHipThrustExercise(toId)) {
+    // Renegade row variants can flow to glute bridge
+    if (fromId.includes('renegade')) {
+      prediction = 'yes';
+      confidence = 75;
+      reasons.push('Renegade row → glute bridge (transition to floor)');
+      ruleApplied = 'renegade_to_glute';
+      return { prediction, confidence, reasons, ruleApplied };
+    }
   }
 
   // -------------------------------------------------------------------------
-  // RULE 6: Supine Core → Complex Compounds = NO
-  // Sit up → SDL to Reverse Lunge, Clean to Press, etc.
+  // RULE 10: Supine Core → Complex Compounds = NO
   // -------------------------------------------------------------------------
   if (isSupineCoreExercise(fromId) && isComplexCompound(toId)) {
     prediction = 'no';
@@ -234,8 +309,7 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 7: Supine Core → Simple Standing = YES
-  // Sit up → Squat, Deadlift, Shoulder Press works
+  // RULE 11: Supine Core → Simple Standing = YES
   // -------------------------------------------------------------------------
   if (isSupineCoreExercise(fromId) && isSimpleStanding(toId)) {
     prediction = 'yes';
@@ -246,8 +320,7 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 8: Same bench_laying position (excluding pullover)
-  // Chest Fly → Skull Crusher works, but not pullover transitions
+  // RULE 12: Same bench_laying position (excluding pullover)
   // -------------------------------------------------------------------------
   if (from.position === 'bench_laying' && to.position === 'bench_laying') {
     if (!isPulloverExercise(fromId) && !isPulloverExercise(toId)) {
@@ -260,21 +333,19 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 9: Standing → Bench = usually NO (awkward transition)
+  // RULE 13: Power → Supine Core = YES (power finisher → rest on floor)
+  // Clean to Press → Sit Up works
   // -------------------------------------------------------------------------
-  const fromZone = getPositionZone(from.position);
-  const toZone = getPositionZone(to.position);
-
-  if (fromZone === 'standing_zone' && toZone === 'bench_zone') {
-    prediction = 'no';
-    confidence = 85;
-    reasons.push('Standing → Bench transition is awkward within a block');
-    ruleApplied = 'standing_to_bench';
+  if (isPowerFinisher(fromId) && isSupineCoreExercise(toId)) {
+    prediction = 'yes';
+    confidence = 80;
+    reasons.push('Power finisher → supine core (rest after power)');
+    ruleApplied = 'power_to_supine';
     return { prediction, confidence, reasons, ruleApplied };
   }
 
   // -------------------------------------------------------------------------
-  // RULE 10: High grip → High grip = NO (fatigue)
+  // RULE 14: High grip → High grip = NO (fatigue)
   // -------------------------------------------------------------------------
   if (from.gripDemand === 'high' && to.gripDemand === 'high') {
     prediction = 'no';
@@ -285,7 +356,7 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 11: Warmup → Power = NO (wrong sequence within block)
+  // RULE 15: Warmup → Power = NO (wrong sequence)
   // -------------------------------------------------------------------------
   if (isWarmupExercise(fromId) && isPowerFinisher(toId)) {
     prediction = 'no';
@@ -296,14 +367,12 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 12: Same movement family = contextual
-  // Works for some families but not others (squat family excluding split_squat)
+  // RULE 16: Same movement family = contextual
   // -------------------------------------------------------------------------
   const fromFamily = getMovementFamily(fromId);
   const toFamily = getMovementFamily(toId);
 
   if (fromFamily && toFamily && fromFamily === toFamily) {
-    // Squat family has issues (Bulgarian → Split = NO)
     if (fromFamily === 'squat_family') {
       prediction = 'uncertain';
       confidence = 60;
@@ -317,25 +386,12 @@ export function predictTransition(
   }
 
   // -------------------------------------------------------------------------
-  // RULE 13: Weight path compatibility (weak signal now)
+  // RULE 17: Weight path compatibility (weak signal)
   // -------------------------------------------------------------------------
   if (from.weightPath && to.weightPath && prediction === 'uncertain') {
     if (from.weightPath.end === to.weightPath.start) {
       confidence = Math.max(confidence, 60);
       reasons.push(`Weight path flows (${from.weightPath.end} → ${to.weightPath.start})`);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // RULE 14: Universal receivers - ONLY simple squat/deadlift
-  // -------------------------------------------------------------------------
-  const universalReceivers = ['squat', 'goblet_squat', 'deadlift'];
-  if (universalReceivers.some(r => toId === r || toId.startsWith(r + '_'))) {
-    if (prediction === 'uncertain') {
-      prediction = 'yes';
-      confidence = 65;
-      reasons.push(`${to.name} is a universal receiver`);
-      ruleApplied = 'universal_receiver';
     }
   }
 

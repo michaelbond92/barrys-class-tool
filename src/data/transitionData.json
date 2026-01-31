@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-01-31T02:07:29.675Z",
-  "version": "4.0",
+  "generatedAt": "2026-01-31T03:32:10.677Z",
+  "version": "5.0",
   "barrysTransitions": {
     "WGS to Pushup → Good Morning to Squat to Lunges": 1,
     "Good Morning to Squat to Lunges → Fast Feet | Burpees": 1,
@@ -2400,9 +2400,9 @@
   "stats": {
     "totalBarrysTransitions": 876,
     "uniqueBarrysTransitions": 787,
-    "userYes": 136,
-    "userNo": 266,
+    "userYes": 196,
+    "userNo": 304,
     "userSkip": 0,
-    "totalUserRatings": 402
+    "totalUserRatings": 500
   }
 }

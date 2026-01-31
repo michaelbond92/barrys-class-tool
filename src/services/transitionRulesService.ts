@@ -5,8 +5,8 @@
 // IMPORTANT: "YES" means the transition COULD work (possible), not ideal
 // These rules apply within blocks OR between blocks
 //
-// Updated: 2026-01-31 after 402 ratings analysis
-// Accuracy: 72% overall, YES 63%, NO 78%
+// Updated: 2026-01-31 after 500 ratings analysis
+// Accuracy: 67% overall (400 with predictions: 270 correct)
 // ============================================================================
 
 import { ExerciseDefinition } from '../data/exerciseReference';
@@ -39,8 +39,8 @@ const ACTIVE_REST_EXERCISES = ['dead_bug', 'bird_dog', 'cat_cow'];
 // Hip thrust/glute bridge - CAN flow to supine core (same floor zone)
 const HIP_THRUST_EXERCISES = ['glute_bridge', 'hip_thrust'];
 
-// Split squat is a "problem destination" - 100% NO rate in RLHF (10/10)
-const PROBLEM_DESTINATIONS = ['split_squat'];
+// Split squat - contextual destination (90% NO, but can follow lunges/squats/deadlifts)
+const SPLIT_SQUAT_DESTINATIONS = ['split_squat', 'bulgarian_split_squat'];
 
 // Pullover exercises don't flow well to other bench exercises
 const PULLOVER_EXERCISES = ['pullover', 'lat_pullover', 'lat_pullover_to_crunch'];
@@ -72,11 +72,23 @@ const POWER_FINISHERS = [
   'devils_press', 'thruster', 'squat_to_hi_pull', 'clean_to_press'
 ];
 
-// Warmup exercises
-const WARMUP_EXERCISES = ['wgs', 'gms', 'cat_cow', 'inchworm', 'hip_opener', 'good_morning_stretch'];
+// Warmup exercises - never follow weighted exercises
+const WARMUP_EXERCISES = ['wgs', 'gms', 'cat_cow', 'inchworm', 'hip_opener', 'good_morning_stretch', 'gm_to_squat'];
 
 // Plank family - floor laying but prone (face down)
 const PLANK_FAMILY = ['plank', 'mountain_climber', 'commando', 'pushup', 'renegade_row', 'plank_drag', 'bear_crawl', 'inchworm'];
+
+// Exercises that can precede split squat (from user notes)
+const SPLIT_SQUAT_SOURCES = ['lunge', 'reverse_lunge', 'curtsy_lunge', 'squat', 'goblet_squat', 'deadlift', 'sdl', 'rdl', 'clean', 'single_arm_row'];
+
+// Medium weight exercises (shouldn't flow to heavy)
+const MEDIUM_WEIGHT_EXERCISES = ['chest_fly', 'lateral_raise', 'reverse_fly'];
+
+// Heavy weight exercises
+const HEAVY_WEIGHT_EXERCISES = ['incline_press', 'chest_press', 'deadlift', 'squat'];
+
+// Bench exercises that don't flow well to standing
+const BENCH_NO_STANDING = ['skull_crusher', 'skull_crusher_to_close_grip', 'pullover', 'lat_pullover'];
 
 // Universal receivers - accept transitions from many sources
 const UNIVERSAL_RECEIVERS = ['squat', 'goblet_squat', 'deadlift', 'single_arm_row', 'row'];
@@ -132,8 +144,24 @@ function isHipThrustExercise(exerciseId: string): boolean {
   return HIP_THRUST_EXERCISES.some(e => exerciseId.includes(e));
 }
 
-function isProblemDestination(exerciseId: string): boolean {
-  return PROBLEM_DESTINATIONS.some(e => exerciseId.includes(e));
+function isSplitSquatDestination(exerciseId: string): boolean {
+  return SPLIT_SQUAT_DESTINATIONS.some(e => exerciseId.includes(e));
+}
+
+function canPrecedeSplitSquat(exerciseId: string): boolean {
+  return SPLIT_SQUAT_SOURCES.some(e => exerciseId.includes(e));
+}
+
+function isMediumWeight(exerciseId: string): boolean {
+  return MEDIUM_WEIGHT_EXERCISES.some(e => exerciseId.includes(e));
+}
+
+function isHeavyWeight(exerciseId: string): boolean {
+  return HEAVY_WEIGHT_EXERCISES.some(e => exerciseId.includes(e));
+}
+
+function isBenchNoStanding(exerciseId: string): boolean {
+  return BENCH_NO_STANDING.some(e => exerciseId.includes(e));
 }
 
 function isPulloverExercise(exerciseId: string): boolean {
@@ -189,25 +217,58 @@ export function predictTransition(
   const toId = to.id.toLowerCase();
 
   // -------------------------------------------------------------------------
-  // RULE 1: Split Squat as destination = ALWAYS NO (100% in RLHF - 10/10)
+  // RULE 1: Split Squat destination - contextual (90% NO, but some work)
+  // Can follow: lunges, squats, deadlifts, single arm row, clean
   // -------------------------------------------------------------------------
-  if (isProblemDestination(toId)) {
+  if (isSplitSquatDestination(toId)) {
+    if (canPrecedeSplitSquat(fromId)) {
+      prediction = 'yes';
+      confidence = 75;
+      reasons.push('Split squat can follow lunges/squats/deadlifts');
+      ruleApplied = 'split_squat_valid_source';
+      return { prediction, confidence, reasons, ruleApplied };
+    } else {
+      prediction = 'no';
+      confidence = 90;
+      reasons.push('Split squat rarely follows this exercise (90% NO rate)');
+      ruleApplied = 'split_squat_invalid_source';
+      return { prediction, confidence, reasons, ruleApplied };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 2: Weighted → Warmup = NO
+  // Never go from weighted exercise into warmup
+  // -------------------------------------------------------------------------
+  if (isWarmupExercise(toId) && !isWarmupExercise(fromId)) {
     prediction = 'no';
-    confidence = 95;
-    reasons.push('Split squat as destination has 100% NO rate');
-    ruleApplied = 'split_squat_destination';
+    confidence = 90;
+    reasons.push('Never go from weighted exercise into warmup');
+    ruleApplied = 'weighted_to_warmup';
     return { prediction, confidence, reasons, ruleApplied };
   }
 
   // -------------------------------------------------------------------------
-  // RULE 2: Universal Receivers = YES
-  // Single Arm Row, Squat, Deadlift accept many transitions
+  // RULE 3: Medium → Heavy weight = NO
+  // Chest Fly → Incline Press doesn't work (weight mismatch)
   // -------------------------------------------------------------------------
-  if (isUniversalReceiver(toId)) {
-    prediction = 'yes';
+  if (isMediumWeight(fromId) && isHeavyWeight(toId)) {
+    prediction = 'no';
+    confidence = 85;
+    reasons.push('Medium weight → heavy weight is awkward transition');
+    ruleApplied = 'weight_mismatch';
+    return { prediction, confidence, reasons, ruleApplied };
+  }
+
+  // -------------------------------------------------------------------------
+  // RULE 4: Bench exercises → Universal receivers = contextual
+  // Skull crusher → squat/row usually NO (need to get up from bench)
+  // -------------------------------------------------------------------------
+  if (isBenchNoStanding(fromId) && isUniversalReceiver(toId)) {
+    prediction = 'no';
     confidence = 80;
-    reasons.push(`${to.name} is a universal receiver`);
-    ruleApplied = 'universal_receiver';
+    reasons.push('Bench exercises don\'t flow well to standing receivers');
+    ruleApplied = 'bench_to_standing';
     return { prediction, confidence, reasons, ruleApplied };
   }
 

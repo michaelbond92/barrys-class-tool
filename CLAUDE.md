@@ -61,53 +61,51 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 
 ## Transition Rules (RLHF-Trained)
 
-### Rule Summary (from 402 ratings, 72% overall, YES 63%, NO 78%)
+### Rule Summary (from 500 ratings, 67% overall accuracy)
 
 | Rule | Prediction | Confidence | Notes |
 |------|------------|------------|-------|
-| Split squat destination | NO | 95% | 100% NO rate (10/10) |
-| Universal receivers | YES | 80% | Single Arm Row, Squat, Deadlift accept many |
+| Split squat (valid source) | YES | 75% | Can follow lunges/squats/deadlifts/row |
+| Split squat (other) | NO | 90% | Most exercises can't precede split squat |
+| Weighted → Warmup | NO | 90% | Never go from weighted into warmup |
+| Medium → Heavy weight | NO | 85% | Chest Fly → Incline Press = weight mismatch |
+| Bench → Universal receiver | NO | 80% | Skull crusher → squat/row awkward |
 | Standing curls → Bench | YES | 85% | Bicep Curl → Skull Crusher works |
 | Standing curls → Supine | YES | 80% | Hammer Curl → Russian Twist works |
 | Standing → Supine Core | YES | 80% | Squat to Press → Jacknife works |
 | Hip Thrust → Supine Core | YES | 85% | Same floor zone |
 | Supine → Supine Core | YES | 90% | Lat Pullover → Sit Up works |
 | Pullover → other bench | NO | 90% | Doesn't flow despite same position |
-| Renegade → Glute Bridge | YES | 75% | End of plank work, flip is OK |
 | Supine → complex compound | NO | 85% | Situp → SDL to Lunge too much |
 | Supine → simple standing | YES | 80% | Squat, Deadlift, Shoulder Press |
 | Same bench (non-pullover) | YES | 85% | Chest Fly → Skull Crusher works |
-| Power → Supine Core | YES | 80% | Clean to Press → Sit Up (rest after power) |
-| High grip → High grip | NO | 75% | Fatigue concern |
+| Power → Supine Core | YES | 80% | Clean to Press → Sit Up |
 | Warmup → Power | NO | 90% | Wrong sequence |
-| Same family (not squat) | YES | 75% | Hinge→hinge works |
 
-### Key Learnings from 402 Ratings
+### Key Learnings from 500 Ratings
 
-1. **Bi-directional flows** - Standing ↔ Supine Core works both ways
-2. **Standing Curls are special** - Flow to bench AND supine (unique transition ability)
-3. **Universal Receivers** - Single Arm Row, Squat, Deadlift accept almost anything
-4. **Hip Thrust → Supine = YES** - Same floor zone, not awkward like we thought
-5. **Power → Core = YES** - Rest on floor after power finisher makes sense
-6. **Renegade → Glute Bridge = YES** - End of plank work, flip is intentional
+1. **Context matters** - Block boundaries affect whether transitions work
+2. **Equipment/weight matters** - Medium → Heavy weight doesn't flow
+3. **Split squat is contextual** - Can follow lunges, squats, deadlifts, single arm row
+4. **Warmup is special** - Weighted → Warmup always NO
+5. **Bench exercises don't flow to standing** - Skull crusher → squat/row = NO
+6. **User notes reveal nuances** - "Yes if squat was bench front", "Yes if end of block"
 
 ### Exercise Categories
 
 ```typescript
-// Universal receivers - accept from many sources
-UNIVERSAL_RECEIVERS = ['squat', 'goblet_squat', 'deadlift', 'single_arm_row', 'row']
+// Split squat valid sources (can precede split squat)
+SPLIT_SQUAT_SOURCES = ['lunge', 'reverse_lunge', 'curtsy_lunge', 'squat', 'goblet_squat',
+                       'deadlift', 'sdl', 'rdl', 'clean', 'single_arm_row']
 
-// Standing curls flow to bench AND supine
-STANDING_CURLS = ['bicep_curl', 'hammer_curl', 'hammer_curl_to_press', 'curl_to_press']
+// Warmup exercises - never follow weighted
+WARMUP_EXERCISES = ['wgs', 'gms', 'cat_cow', 'inchworm', 'gm_to_squat']
 
-// Bench that receives from curls
-BENCH_FROM_CURLS = ['skull_crusher', 'chest_fly', 'chest_press']
+// Medium weight (don't flow to heavy)
+MEDIUM_WEIGHT_EXERCISES = ['chest_fly', 'lateral_raise', 'reverse_fly']
 
-// NEVER valid as destination
-PROBLEM_DESTINATIONS = ['split_squat']
-
-// Don't flow to other bench exercises
-PULLOVER_EXERCISES = ['pullover', 'lat_pullover', 'lat_pullover_to_crunch']
+// Bench exercises that don't flow to standing
+BENCH_NO_STANDING = ['skull_crusher', 'skull_crusher_to_close_grip', 'pullover', 'lat_pullover']
 ```
 
 ---
@@ -194,7 +192,7 @@ The app uses dropdown navigation to keep the header clean:
 
 ## Session Notes
 
-### 2026-01-31: Transition Rater & RLHF Training (402 ratings)
+### 2026-01-31: Transition Rater & RLHF Training (500 ratings)
 
 Built smart Transition Rater with prediction system:
 - 3 modes: Smart (uncertain), Review Predictions, Random
@@ -202,36 +200,30 @@ Built smart Transition Rater with prediction system:
 - Keyboard shortcuts: Y/N/S/A (accept prediction)
 - Tracks prediction accuracy in real-time
 
-**402 ratings collected:**
-- 136 YES (34%), 266 NO (66%)
+**500 ratings collected:**
+- 196 YES (39%), 304 NO (61%)
 - User is stricter than Barry's actual transitions
 
-**Prediction accuracy (after 402):**
-- Overall: 72%
-- YES predictions: 63%
-- NO predictions: 78%
-- New 102 ratings: 76% accuracy (rules improving!)
+**Prediction accuracy (after 500):**
+- Overall: 67% (270/400 with predictions)
+- New 98 ratings: YES 100%, NO 75%
 
-**Major discoveries from 402 ratings:**
+**Major discoveries from 500 ratings:**
 
 | Finding | Rule Update |
 |---------|-------------|
-| Standing → Supine Core = YES | Lie down for core is natural |
-| Standing Curls → Bench = YES | Bicep Curl → Skull Crusher works |
-| Standing Curls → Supine = YES | Hammer Curl → Russian Twist works |
-| Hip Thrust → Supine Core = YES | Same floor zone, not awkward |
-| Renegade → Glute Bridge = YES | End of plank work, flip is OK |
-| Power → Supine Core = YES | Rest on floor after power |
-| Universal receivers expanded | Single Arm Row, Squat, Deadlift |
+| Split squat is contextual | Can follow lunges/squats/deadlifts |
+| Weighted → Warmup = NO | Never go from weighted to warmup |
+| Medium → Heavy weight = NO | Chest Fly → Incline Press mismatch |
+| Bench → Standing = NO | Skull crusher → squat/row awkward |
+| Context matters | "Yes if end of block", "Yes if bench front" |
 
-**Key insight:** Transitions are bi-directional for Supine Core:
-- Standing → Supine Core = YES (lie down)
-- Supine Core → Standing = YES (sit up and stand)
-
-**Standing curls are uniquely flexible:**
-- Flow to bench exercises (Skull Crusher, Chest Fly)
-- Flow to supine core (Russian Twist, Jacknife)
-- Flow to dead bug (Hammer Curl → Dead Bug = YES)
+**Key user notes revealing nuances:**
+- "Split squats typically only follow lunges, squat, goblet, curtsy, deadlift, SDL"
+- "Good morning to Squat is a warmup - never follow weighted with warmup"
+- "Chest flys are medium, Incline press is heavy - weight mismatch"
+- "Yes if squat was bench front" (position context matters)
+- "Yes if Single Arm Row was end of block" (block boundary context)
 
 ### 2026-01-30: Enhanced Flow Scoring
 

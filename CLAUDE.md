@@ -61,44 +61,50 @@ A tool for generating Barry's Bootcamp-style fitness classes. Users import real 
 
 ## Transition Rules (RLHF-Trained)
 
-### Rule Summary (from 200 ratings, 78% accuracy on high-confidence)
+### Rule Summary (from 300 ratings, 63% overall, 82% NO predictions)
 
 | Rule | Prediction | Confidence | Notes |
 |------|------------|------------|-------|
-| Same position (laying/bench) | YES | 95% | 100% approval in RLHF |
-| Supine core → Standing | YES | 85% | Sit up and stand is natural |
-| Bench upper → Standing upper | YES | 85% | Muscle group continuity |
-| Supine core → Power finisher | YES | 80% | Block transition pattern |
+| Split squat as destination | NO | 95% | 100% NO rate (10/10) |
+| Glute bridge as source | NO | 85% | 83% NO rate (5/6) |
+| Active rest destination | NO | 85% | Dead bug, bird dog don't receive |
+| Pullover → other bench | NO | 90% | Pullover doesn't flow to skull crusher, incline |
+| Plank → supine | NO | 90% | Flipping over is awkward |
+| Supine core → complex compound | NO | 85% | Situp → SDL to Lunge too much |
+| Supine core → simple standing | YES | 80% | Situp → Squat, Deadlift works |
+| Same bench (non-pullover) | YES | 85% | Chest Fly → Skull Crusher works |
 | Standing → Bench | NO | 85% | Awkward within a block |
-| Same movement family | YES | 80% | Hinge→hinge, squat→squat |
 | High grip → High grip | NO | 75% | Fatigue concern |
 | Warmup → Power | NO | 90% | Wrong sequence |
-| Weight path flows | YES | 70% | End position = start position |
-| Universal receivers (squat, DL) | YES | 65% | Accept many transitions |
-| Active rest exercises (dead bug) | NO | 80% | Don't flow well from other moves |
+| Same family (not squat) | YES | 75% | Hinge→hinge works, squat family has issues |
+| Universal receivers | YES | 65% | Only simple squat/deadlift |
 
-### Key Learnings from RLHF
+### Key Learnings from 300 Ratings
 
 1. **"YES" means possible, not ideal** - A transition could work within a block OR between blocks
-2. **Supine core flows UP** - Jacknife → Shoulder Press is fine (sit up and stand)
-3. **Bench upper → Standing upper works** - Chest Fly → Shoulder Press (muscle continuity)
-4. **Dead Bug is special** - It's "active rest", doesn't flow from intense exercises
-5. **Power finishers receive from anywhere** - End of block, you can transition from core
+2. **Split squat is special** - NEVER a valid destination (100% NO rate)
+3. **Glute bridge is special** - Almost never flows OUT (83% NO)
+4. **Pullover breaks bench rule** - Same position doesn't help; pullover → skull crusher = NO
+5. **Supine core is nuanced** - Works with SIMPLE standing, not complex compounds
+6. **Squat family has issues** - Bulgarian → Split = NO despite same family
 
-### Exercise Categories
+### Problem Exercises
 
 ```typescript
-// Supine core that flows INTO standing
-SUPINE_CORE_TO_STANDING = ['jacknife', 'situp', 'crunch', 'toe_touch', 'russian_twist', 'leg_lift', 'hip_raise']
+// NEVER valid as destination
+PROBLEM_DESTINATIONS = ['split_squat']
 
-// Active rest - don't flow well
-ACTIVE_REST_EXERCISES = ['dead_bug', 'bird_dog', 'cat_cow']
+// Rarely flow OUT
+GLUTE_BRIDGE_EXERCISES = ['glute_bridge', 'hip_thrust']
 
-// Bench upper that flows to standing upper
-BENCH_UPPER_TO_STANDING_OK = ['chest_fly', 'chest_press', 'incline_press', 'pullover', 'skull_crusher']
+// Don't flow to other bench exercises
+PULLOVER_EXERCISES = ['pullover', 'lat_pullover', 'lat_pullover_to_crunch']
 
-// Power finishers
-POWER_FINISHERS = ['snatch', 'clean', 'db_swing', 'burpee', 'devils_press', 'thruster']
+// Supine core doesn't flow to these
+COMPLEX_COMPOUNDS = ['sdl_to_reverse_lunge', 'clean_to_press', 'squat_to_hi_pull', 'lunge_to_curl']
+
+// Supine core DOES flow to these
+SIMPLE_STANDING = ['squat', 'goblet_squat', 'sumo_squat', 'deadlift', 'rdl', 'shoulder_press']
 ```
 
 ---
@@ -185,7 +191,7 @@ The app uses dropdown navigation to keep the header clean:
 
 ## Session Notes
 
-### 2026-01-31: Transition Rater & RLHF Training
+### 2026-01-31: Transition Rater & RLHF Training (300 ratings)
 
 Built smart Transition Rater with prediction system:
 - 3 modes: Smart (uncertain), Review Predictions, Random
@@ -193,21 +199,32 @@ Built smart Transition Rater with prediction system:
 - Keyboard shortcuts: Y/N/S/A (accept prediction)
 - Tracks prediction accuracy in real-time
 
-**200 ratings collected:**
-- 60 YES (30%), 140 NO (70%)
+**300 ratings collected:**
+- 103 YES (34%), 197 NO (66%)
 - User is stricter than Barry's actual transitions
 
-**Prediction accuracy:**
-- Overall: 62%
-- High confidence (90%+): 78%
+**Prediction accuracy (after 300):**
+- Overall: 63%
+- YES predictions: 59%
 - NO predictions: 82%
-- YES predictions: 69%
 
-**Rules updated based on failures:**
-1. Supine core → standing = YES (was wrongly blocked)
-2. Bench upper → standing upper = YES (muscle continuity)
-3. Dead bug is special (active rest, doesn't flow)
-4. Power finishers can receive from core
+**Major rule updates from 300 ratings:**
+
+| Finding | Rule Update |
+|---------|-------------|
+| Split squat = 100% NO | Added as PROBLEM_DESTINATION |
+| Glute bridge = 83% NO | Added as source that rarely works |
+| Pullover → bench = NO | Same position rule doesn't apply |
+| Supine → split_squat = NO | Complex destinations don't work |
+| Supine → simple standing = YES | squat, deadlift, shoulder_press |
+| Squat family issues | Bulgarian → Split = NO |
+
+**High-confidence failures fixed:**
+- Pullover → Skull Crusher (was YES 95%, now NO)
+- Lat Pullover → Dead Bug (was YES 95%, now NO)
+- Glute Bridge → any (was YES, now NO 85%)
+- Renegade Row → Glute Bridge (was YES 95%, now NO)
+- Devil's Press → Bear Crawl (was YES 95%, now NO)
 
 ### 2026-01-30: Enhanced Flow Scoring
 
